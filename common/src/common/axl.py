@@ -7,16 +7,18 @@ def get_self_public_key():
     if resp.status_code == 200:
         topology = resp.json()
         return topology['our_public_key']
+    else:
+        raise Exception("AXL not set up correctly or not running")
 
 def send(message, peer_id):
     requests.post(f"{AXL}/send",
         headers={"X-Destination-Peer-Id": peer_id},
         data=json.dumps(message))
 
-def recv_loop():
-    while True:
-        resp = requests.get(f"{AXL}/recv")
-        if resp.status_code == 200:
-            sender = resp.headers.get("X-From-Peer-Id")
-            print(f"From {sender[:8]}...: {resp.text}")
-        time.sleep(0.2)
+def recv():
+    resp = requests.get(f"{AXL}/recv")
+    if resp.status_code == 200:
+        sender = resp.headers.get("X-From-Peer-Id")
+        if sender is None:
+            return None
+        return (sender, resp.text)

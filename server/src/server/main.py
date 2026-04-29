@@ -1,22 +1,22 @@
 from common import axl
+from .state import State
+from .messaging import recv_loop
+from .config import *
+import asyncio
+
+
+async def run_server(): 
+    # check axl
+    self_public_key = axl.get_self_public_key()
+
+    # setup server state
+    state = State(AGENTS_IN_SIM, self_public_key)
+
+    await recv_loop(state)
 
 
 def main():
-    # parse args
-    # setup logging
-    # setup server_state
-    # setup axl recv
-
-    # on recv matchmaking request:
-    #   add to matchmaking queue
-    #   if there are enough players in the matchmaking queue:
-    #       create a new game instance
-    #       remove players from matchmaking queue
-    #       add players to game instance
-
-    print(axl.get_self_public_key())
-
-
+    asyncio.run(run_server())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,2 @@
+AGENTS_IN_SIM = 3
+MAP_SIZE = 5
