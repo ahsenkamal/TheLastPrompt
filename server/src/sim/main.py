@@ -1,8 +1,8 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 
 
-sim_executor = ThreadPoolExecutor()
+sim_executor = ProcessPoolExecutor()
 
 
 def sim_done(future):
