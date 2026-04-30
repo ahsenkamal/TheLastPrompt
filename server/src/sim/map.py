@@ -53,3 +53,8 @@ class Map:
             tile.occupants.append(agent)
             agent.pos_x = x
             agent.pos_y = y
+            agent.visible_tiles = [
+                (x2, y2)
+                for y2 in range(max(0, y - 3), min(len(self.grid), y + 4))
+                for x2 in range(max(0, x - 3), min(len(self.grid[0]), x + 4))
+            ]

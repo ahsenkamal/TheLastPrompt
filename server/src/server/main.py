@@ -16,7 +16,10 @@ async def run_server():
 
 
 def main():
-    asyncio.run(run_server())
+    try:
+        asyncio.run(run_server())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

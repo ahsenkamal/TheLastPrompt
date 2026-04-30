@@ -28,7 +28,6 @@ class ResourceType(StrEnum):
     AMMO = "ammo"
     POWER_SOURCE = "power_source"
     MAP = "map"
-    SATELLITE_TRACKER = "satellite_tracker"
     BINOCULARS = "binoculars"
     SEEDS = "seeds"
     FUEL = "fuel"
