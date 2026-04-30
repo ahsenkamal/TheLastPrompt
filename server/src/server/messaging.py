@@ -2,12 +2,15 @@ import json, asyncio
 from common import axl
 import sim
 from .state import State
-from .config import MAP_SIZE
+from .config import MAP_SIZE, PROTOCOL_VERSION
 
 
 async def handle_message(sender, msg, state: State):
     msg = json.loads(msg)
-    if msg['type'] == 'MATCHMAKING_JOIN':
+    if msg.get("protocol_version") != PROTOCOL_VERSION:
+        print(f"Received message with unsupported protocol version: {msg.get('protocol_version')}")
+        return
+    if msg.get("message_type") == 'MATCHMAKING_JOIN':
         state.add_to_queue(sender)
         if state.queue_ready():
             print("Matchmaking queue is ready, creating new game instance")

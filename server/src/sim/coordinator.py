@@ -31,6 +31,7 @@ def create_state_message(sim: "Simulation", agent: Agent) -> dict[str, Any]:
 
 def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
     return {
+        "sim_id": sim.id,
         "tick": sim.iteration,
         "temp": sim.temp,
         "agent": {

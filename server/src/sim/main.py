@@ -3,6 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 from .map import Map
 from .agent import Agent
 from .sim import Simulation
+from uuid import uuid4
 
 sim_executor = ProcessPoolExecutor()
 
@@ -39,5 +40,6 @@ def start(agent_public_keys, seed):
     map.print()
 
     # run sim
-    sim = Simulation(map, agents, seed)
+    sim_id = uuid4().hex
+    sim = Simulation(sim_id, map, agents, seed)
     sim.run()

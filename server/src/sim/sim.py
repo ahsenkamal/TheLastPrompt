@@ -8,7 +8,8 @@ from .coordinator import send_states_to_agents
 import random
 
 class Simulation:
-    def __init__(self, map: Map, agents: list[Agent], seed: int):
+    def __init__(self, sim_id, map: Map, agents: list[Agent], seed: int):
+        self.id = sim_id
         self.map = map
         self.agents = agents
         self.iteration = 0
