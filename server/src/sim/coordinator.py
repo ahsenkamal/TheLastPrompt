@@ -48,11 +48,21 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
         "temp": sim.temp,
         "agent": {
             "id": agent.id,
+            "public_key": agent.public_key,
+            "position": {
+                "x": agent.pos_x,
+                "y": agent.pos_y,
+            },
+            "alive": agent.alive,
             "health": agent.health,
             "mental_health": agent.mental_health,
             "hunger": agent.hunger,
             "thirst": agent.thirst,
             "warmth": agent.warmth,
+            "strength": agent.strength,
+            "stance": agent.stance,
+            "status": list(agent.status),
+            "action_budget": agent.action_budget,
             "inventory": serialize_inventory(agent.inventory),
         },
         "visible_map": create_visible_map(sim, agent),
@@ -69,7 +79,18 @@ def create_visible_map(sim: "Simulation", agent: Agent) -> list[dict[str, Any]]:
                 "x": tile.pos_x,
                 "y": tile.pos_y,
                 "type": tile.type.value,
-                "occupants": [{occupant.id: occupant.public_key} for occupant in tile.occupants],
+                "occupants": [
+                    {
+                        "id": occupant.id,
+                        "public_key": occupant.public_key,
+                        "position": {
+                            "x": occupant.pos_x,
+                            "y": occupant.pos_y,
+                        },
+                        "alive": occupant.alive,
+                    }
+                    for occupant in tile.occupants
+                ],
                 "resources": serialize_inventory(tile.resources),
                 "shelters": list(tile.shelters.keys()),
                 "storages": list(tile.storages.keys()),

@@ -85,6 +85,70 @@ ACTION_DESCRIPTIONS: dict[ActionType, str] = {
 }
 
 
+ACTION_FIELD_SPECS: dict[ActionType, dict[str, Any]] = {
+    ActionType.WAIT: {"required_fields": {}, "notes": "No fields required."},
+    ActionType.SLEEP: {"required_fields": {}, "notes": "No fields required."},
+    ActionType.TRAIN: {"required_fields": {}, "notes": "No fields required."},
+    ActionType.EAT: {
+        "required_fields": {"consumable": "Food resource name from your inventory."},
+    },
+    ActionType.DRINK: {
+        "required_fields": {"consumable": "Water resource name from your inventory."},
+    },
+    ActionType.HEAL: {
+        "required_fields": {"consumable": "Medication resource name from your inventory."},
+    },
+    ActionType.TALK_TO: {
+        "required_fields": {"target": "Public key string of a visible agent."},
+    },
+    ActionType.WARMUP: {
+        "required_fields": {"consumable": "fuel or wood from your inventory."},
+    },
+    ActionType.CHANGE_STANCE: {
+        "required_fields": {"target": "Either normal or sneak."},
+    },
+    ActionType.MOVE: {
+        "required_fields": {"target": {"x": "visible passable tile x", "y": "visible passable tile y"}},
+    },
+    ActionType.CHANGE_STATUS: {
+        "required_fields": {"target": "Either normal or guarding."},
+    },
+    ActionType.CREATE_SHELTER: {
+        "required_fields": {"target": {"x": "visible passable tile x", "y": "visible passable tile y"}},
+    },
+    ActionType.ATTACK: {
+        "required_fields": {"target": {"id": "visible agent id", "public_key": "visible agent public key"}},
+    },
+    ActionType.GROW_FOOD: {
+        "required_fields": {"target": {"x": "visible land tile x", "y": "visible land tile y"}},
+    },
+    ActionType.COOK_FOOD: {
+        "required_fields": {
+            "consumable": "raw_food",
+            "item": "fuel or wood from your inventory",
+        },
+    },
+    ActionType.STEAL: {
+        "required_fields": {"target": {"x": "visible tile x with another agent shelter", "y": "visible tile y"}},
+    },
+    ActionType.CREATE_STORAGE: {
+        "required_fields": {"target": {"x": "visible own shelter tile x", "y": "visible own shelter tile y"}},
+    },
+    ActionType.GATHER_WOOD: {
+        "required_fields": {"target": {"x": "current forest tile x", "y": "current forest tile y"}},
+    },
+    ActionType.PICK_RESOURCE: {
+        "required_fields": {"consumable": "Resource name present on your current tile."},
+    },
+    ActionType.FISH: {
+        "required_fields": {"target": {"x": "visible water tile x", "y": "visible water tile y"}},
+    },
+    ActionType.TRADE: {
+        "required_fields": {"target": {"id": "visible agent id", "public_key": "visible agent public key"}},
+    },
+}
+
+
 FOOD_RESOURCES = (
     ResourceType.COOKED_FOOD,
     ResourceType.PROCESSED_FOOD,
@@ -217,7 +281,28 @@ def execute_action(sim: "Simulation", agent: "Agent", action: Action | dict[str,
 
 
 def create_valid_actions(sim: "Simulation", agent: "Agent") -> list[dict[str, Any]]:
-    return [action.to_dict() for action in _create_valid_action_objects(sim, agent)]
+    action_types = []
+    seen = set()
+    for action in _create_valid_action_objects(sim, agent):
+        if action.action_type in seen:
+            continue
+        seen.add(action.action_type)
+        action_types.append(action.action_type)
+
+    return [_action_spec(action_type) for action_type in action_types]
+
+
+def _action_spec(action_type: ActionType) -> dict[str, Any]:
+    field_spec = ACTION_FIELD_SPECS[action_type]
+    result = {
+        "action": action_type.value,
+        "budget": ACTION_BUDGETS[action_type],
+        "description": ACTION_DESCRIPTIONS[action_type],
+        "required_fields": _json_value(field_spec["required_fields"]),
+    }
+    if "notes" in field_spec:
+        result["notes"] = field_spec["notes"]
+    return result
 
 
 def _create_valid_action_objects(sim: "Simulation", agent: "Agent") -> list[Action]:

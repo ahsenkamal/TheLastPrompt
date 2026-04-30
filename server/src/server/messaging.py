@@ -38,10 +38,12 @@ async def handle_message(sender, msg, state: State):
     message_type = msg.get("message_type")
     logger.info("received message sender=%s type=%s", sender, message_type)
     if message_type == MESSAGE_TYPE_MATCHMAKING_JOIN:
-        state.add_to_queue(sender)
+        agent_public_key = _extract_sender_public_key(sender, msg)
+        state.add_to_queue(agent_public_key)
         logger.info(
-            "matchmaking join sender=%s queue_size=%s sim_size=%s",
+            "matchmaking join transport_sender=%s agent_public_key=%s queue_size=%s sim_size=%s",
             sender,
+            agent_public_key,
             len(state.matchmaking_queue),
             state.sim_size,
         )
@@ -58,9 +60,14 @@ async def handle_message(sender, msg, state: State):
 
 
 def handle_agent_action(sender: str, msg: dict, state: State):
-    sim_and_agent = state.find_sim_and_agent(sender)
+    agent_public_key = _extract_sender_public_key(sender, msg)
+    sim_and_agent = state.find_sim_and_agent(agent_public_key)
     if sim_and_agent is None:
-        logger.warning("received AGENT_ACTION from unknown agent sender=%s", sender)
+        logger.warning(
+            "received AGENT_ACTION from unknown agent transport_sender=%s agent_public_key=%s",
+            sender,
+            agent_public_key,
+        )
         return
 
     sim_instance, agent = sim_and_agent
@@ -77,11 +84,22 @@ def handle_agent_action(sender: str, msg: dict, state: State):
     logger.info(
         "queued action sim_id=%s sender=%s agent=%s tick=%s action=%s",
         sim_instance.id,
-        sender,
+        agent_public_key,
         agent.id,
         tick,
         action.to_dict(),
     )
+
+
+def _extract_sender_public_key(transport_sender: str, msg: dict) -> str:
+    for container in (msg, msg.get("content")):
+        if not isinstance(container, dict):
+            continue
+        for key in ("sender_public_key", "public_key", "agent_public_key"):
+            value = container.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return transport_sender
 
 
 def _extract_action_tick(content: object, msg: dict, default_tick: int) -> int:

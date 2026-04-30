@@ -68,6 +68,7 @@ class Simulation:
     def process_actions(self, agent: Agent):
         actions = agent.pop_actions(self.iteration)
         remaining_budget = agent.action_budget
+        executed_action = False
         logger.info(
             "processing actions sim_id=%s tick=%s agent=%s queued=%s actions=%s",
             self.id,
@@ -123,6 +124,7 @@ class Simulation:
             )
             execute_action(self, agent, action)
             remaining_budget -= action.budget
+            executed_action = True
             logger.info(
                 "action result sim_id=%s tick=%s agent=%s before=%s after=%s remaining_budget=%.2f",
                 self.id,
@@ -131,6 +133,14 @@ class Simulation:
                 before,
                 _agent_snapshot(agent),
                 remaining_budget,
+            )
+
+        if actions and not executed_action:
+            logger.info(
+                "no valid actions executed; fallback to wait sim_id=%s tick=%s agent=%s",
+                self.id,
+                self.iteration,
+                agent.id,
             )
 
     def base_effects(self, agent: Agent):

@@ -14,6 +14,8 @@ class State:
         self.seed = 0
 
     def add_to_queue(self, agent_public_key):
+        if agent_public_key in self.matchmaking_queue:
+            return
         self.matchmaking_queue.append(agent_public_key)
 
     def queue_ready(self):

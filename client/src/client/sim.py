@@ -158,7 +158,7 @@ def _queue_agent_message(
 
     pending_agent_messages.append(
         {
-            "from": sender,
+            "from": _agent_message_sender(sender, content),
             "tick": tick,
             "message": message_text.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
         }
@@ -167,6 +167,14 @@ def _queue_agent_message(
 
     if len(pending_agent_messages) > config.AGENT_MESSAGE_HISTORY_LIMIT:
         del pending_agent_messages[:-config.AGENT_MESSAGE_HISTORY_LIMIT]
+
+
+def _agent_message_sender(transport_sender: str, content: object) -> str:
+    if isinstance(content, dict):
+        sender = content.get("from") or content.get("sender_public_key") or content.get("public_key")
+        if isinstance(sender, str) and sender.strip():
+            return sender.strip()
+    return transport_sender
 
 
 def _send_llm_response(
@@ -184,7 +192,7 @@ def _send_llm_response(
     tick = state.tick
     logger.info("accepted actions tick=%s actions=%s", tick, actions)
     for action in actions:
-        _send_agent_action(action, tick)
+        _send_agent_action(action, tick, self_public_key)
 
     talk_recipients = _talk_recipients(actions)
     for message in _filter_agent_messages(llm_response.get("messages", []), talk_recipients):
@@ -195,22 +203,48 @@ def _filter_actions(
     actions: list[dict[str, Any]],
     valid_actions: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    valid_signatures = set()
-    for valid_action in valid_actions:
-        signature = _action_signature(valid_action)
-        if signature is not None:
-            valid_signatures.add(signature)
+    valid_action_specs = _valid_action_specs(valid_actions)
 
     selected_actions = []
     for raw_action in actions[: config.MAX_ACTIONS_PER_TICK]:
         action = _wire_action(raw_action)
-        signature = _action_signature(action) if action is not None else None
-        if action is None or signature not in valid_signatures:
+        if action is None:
             logger.warning("skipping invalid LLM action raw_action=%s", raw_action)
             continue
+
+        required_fields = valid_action_specs.get(action["action"])
+        if required_fields is None:
+            logger.warning("skipping unavailable LLM action action=%s raw_action=%s", action["action"], raw_action)
+            continue
+
+        missing_fields = [field for field in required_fields if field not in action]
+        if missing_fields:
+            logger.warning(
+                "skipping LLM action missing required fields action=%s missing=%s raw_action=%s",
+                action["action"],
+                missing_fields,
+                raw_action,
+            )
+            continue
+
         selected_actions.append(action)
 
     return selected_actions
+
+
+def _valid_action_specs(valid_actions: list[dict[str, Any]]) -> dict[str, set[str]]:
+    specs = {}
+    for valid_action in valid_actions:
+        action = _wire_action(valid_action)
+        if action is None:
+            continue
+
+        required_fields = valid_action.get("required_fields", {})
+        if isinstance(required_fields, dict):
+            specs[action["action"]] = set(required_fields)
+        else:
+            specs[action["action"]] = set()
+    return specs
 
 
 def _filter_agent_messages(
@@ -235,12 +269,14 @@ def _filter_agent_messages(
     return selected_messages
 
 
-def _send_agent_action(action: dict[str, Any], tick: int) -> None:
+def _send_agent_action(action: dict[str, Any], tick: int, self_public_key: str) -> None:
     message = {
         "protocol_version": config.PROTOCOL_VERSION,
         "message_type": config.MESSAGE_TYPE_AGENT_ACTION,
+        "sender_public_key": self_public_key,
         "content": {
             "tick": tick,
+            "sender_public_key": self_public_key,
             "action": action,
         },
     }
@@ -275,13 +311,6 @@ def _wire_action(raw_action: dict[str, Any]) -> dict[str, Any] | None:
         if key in raw_action and raw_action[key] is not None:
             action[key] = raw_action[key]
     return action
-
-
-def _action_signature(action: dict[str, Any] | None) -> str | None:
-    action = _wire_action(action) if action is not None else None
-    if action is None:
-        return None
-    return json.dumps(action, sort_keys=True, separators=(",", ":"))
 
 
 def _default_wait_action(valid_actions: list[dict[str, Any]]) -> dict[str, Any] | None:

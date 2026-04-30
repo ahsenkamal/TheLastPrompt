@@ -78,7 +78,8 @@ SYSTEM_PROMPT = """
 You are choosing one turn for a survival simulation agent.
 Return only JSON that matches the provided schema.
 Choose actions from the valid_actions list in the prompt.
-Preserve action names, target objects, consumables, and items exactly as shown in valid_actions.
+Fill required fields using agent, visible_map, inventory, and incoming_agent_messages.
+Use coordinates from visible_map, resource names from inventory/resources, and public keys from visible occupants.
 Use messages only when you also choose a valid talk_to action for the same recipient public key.
 Do not include explanations, markdown, or keys outside the schema.
 """
@@ -88,13 +89,20 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
     try:
         payload = _create_chat_payload(prompt)
         base_url = config.OLLAMA_BASE_URL.rstrip("/")
+        estimated_prompt_tokens = _estimate_tokens(prompt)
+        estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_RESPONSE_TOKENS
         logger.info(
-            "ollama request model=%s base_url=%s think=%s options=%s prompt_chars=%s",
+            "ollama request model=%s base_url=%s think=%s options=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
             config.OLLAMA_MODEL,
             base_url,
             config.OLLAMA_THINK,
             payload["options"],
             len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_RESPONSE_TOKENS,
+            config.OLLAMA_CONTEXT_LENGTH,
+            estimated_total_tokens,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
         )
         logger.debug("ollama prompt\n%s", prompt)
 
@@ -107,12 +115,13 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
         normalized = normalize_llm_response(parsed)
         normalized["reasoning"] = reasoning
         logger.info(
-            "ollama response elapsed=%.2fs model=%s actions=%s messages=%s reasoning_chars=%s",
+            "ollama response elapsed=%.2fs model=%s actions=%s messages=%s reasoning_chars=%s usage=%s",
             elapsed,
             response.get("model"),
             normalized["actions"],
             normalized["messages"],
             len(reasoning),
+            _usage_summary(response),
         )
         if reasoning:
             logger.info("ollama reasoning\n%s", reasoning)
@@ -210,6 +219,43 @@ def _extract_chat_reasoning(response: dict[str, Any]) -> str:
             return value.strip()
 
     return ""
+
+
+def _usage_summary(response: dict[str, Any]) -> dict[str, Any]:
+    prompt_tokens = response.get("prompt_eval_count")
+    response_tokens = response.get("eval_count")
+    total_tokens = None
+    if isinstance(prompt_tokens, int) and isinstance(response_tokens, int):
+        total_tokens = prompt_tokens + response_tokens
+
+    eval_duration = response.get("eval_duration")
+    tokens_per_second = None
+    if isinstance(response_tokens, int) and isinstance(eval_duration, int) and eval_duration > 0:
+        tokens_per_second = round(response_tokens / eval_duration * 1_000_000_000, 2)
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "response_tokens": response_tokens,
+        "total_tokens": total_tokens,
+        "context_length": config.OLLAMA_CONTEXT_LENGTH,
+        "fits_context": total_tokens <= config.OLLAMA_CONTEXT_LENGTH if total_tokens is not None else None,
+        "total_duration_ms": _ns_to_ms(response.get("total_duration")),
+        "load_duration_ms": _ns_to_ms(response.get("load_duration")),
+        "prompt_eval_duration_ms": _ns_to_ms(response.get("prompt_eval_duration")),
+        "eval_duration_ms": _ns_to_ms(eval_duration),
+        "tokens_per_second": tokens_per_second,
+        "done_reason": response.get("done_reason"),
+    }
+
+
+def _estimate_tokens(text: str) -> int:
+    return max(1, (len(text) + 3) // 4)
+
+
+def _ns_to_ms(value: Any) -> float | None:
+    if not isinstance(value, int):
+        return None
+    return round(value / 1_000_000, 2)
 
 
 def _parse_json_content(content: str) -> Any:
