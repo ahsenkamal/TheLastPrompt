@@ -11,6 +11,9 @@ class Tile:
         self.type = TileType(tile_type)
         self.occupants: list[Agent] = []
         self.resources = {resource_type: 0 for resource_type in ResourceType}
+        self.shelters: dict[str, dict] = {}
+        self.storages: dict[str, dict[ResourceType, int]] = {}
+        self.crops: list[dict] = []
 
 
 class Map:
@@ -53,8 +56,4 @@ class Map:
             tile.occupants.append(agent)
             agent.pos_x = x
             agent.pos_y = y
-            agent.visible_tiles = [
-                (x2, y2)
-                for y2 in range(max(0, y - 3), min(len(self.grid), y + 4))
-                for x2 in range(max(0, x - 3), min(len(self.grid[0]), x + 4))
-            ]
+            agent.update_visible_tiles()

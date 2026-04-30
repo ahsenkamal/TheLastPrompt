@@ -1,5 +1,14 @@
+from __future__ import annotations
+
+from threading import Lock
+from typing import TYPE_CHECKING
+
 from .types import ResourceType
 from server.config import MAP_SIZE
+
+if TYPE_CHECKING:
+    from .action import Action
+
 
 class Agent:
     def __init__(self, id, public_key: str):
@@ -17,19 +26,29 @@ class Agent:
         # self.reputation = 0
         self.alive = True
         self.strength = 33
+        self.stance = "normal"
         self.status: list[str] = []
         self.action_budget = 1.0
-        self.actions: dict[int, list[str]] = {}
-        self.valid_actions: dict[int, list[str]] = {}
+        self.actions: dict[int, list[Action]] = {}
+        self.actions_lock = Lock()
         self.visible_tiles: list[tuple[int, int]] = []
         # self.memory
 
     def die(self):
         self.alive = False
 
+    def queue_action(self, iteration: int, action: Action):
+        with self.actions_lock:
+            self.actions.setdefault(iteration, []).append(action)
+
+    def pop_actions(self, iteration: int) -> list[Action]:
+        with self.actions_lock:
+            return self.actions.pop(iteration, [])
+
     def update_visible_tiles(self):
+        radius = 1 if self.stance == "sneak" else 3
         self.visible_tiles = [
             (x, y)
-            for y in range(max(0, self.pos_y - 3), min(MAP_SIZE, self.pos_y + 4))
-            for x in range(max(0, self.pos_x - 3), min(MAP_SIZE, self.pos_x + 4))
+            for y in range(max(0, self.pos_y - radius), min(MAP_SIZE, self.pos_y + radius + 1))
+            for x in range(max(0, self.pos_x - radius), min(MAP_SIZE, self.pos_x + radius + 1))
         ]

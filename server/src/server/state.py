@@ -1,3 +1,10 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sim.agent import Agent
+    from sim.sim import Simulation
+
+
 class State:
     def __init__(self, sim_size, self_public_key):
         self.matchmaking_queue = []
@@ -17,3 +24,11 @@ class State:
         self.matchmaking_queue = self.matchmaking_queue[self.sim_size:]
         self.seed = (self.seed + 1) % (2**32)
         return (agents, self.seed)
+
+    def find_sim_and_agent(self, agent_public_key: str) -> tuple["Simulation", "Agent"] | None:
+        for sim_instance in self.sim_instances:
+            agents = getattr(sim_instance, "agents", [])
+            for agent in agents:
+                if agent.public_key == agent_public_key:
+                    return sim_instance, agent
+        return None

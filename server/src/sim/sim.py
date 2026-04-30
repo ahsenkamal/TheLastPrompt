@@ -3,7 +3,7 @@ from time import sleep
 from .map import Map, Tile
 from .types import *
 from .agent import Agent
-from .action import execute_action, valid_action
+from .action import Action, execute_action, valid_action
 from .coordinator import send_states_to_agents 
 import random
 
@@ -16,6 +16,7 @@ class Simulation:
         self.temp = 15.0
         self.seed = seed
         self.rng = random.Random(seed)
+        self.future = None
 
     def run(self):
         for i in range(100):
@@ -42,15 +43,25 @@ class Simulation:
         pass
 
     def process_actions(self, agent: Agent):
-        actions = agent.actions.get(self.iteration, [])
+        actions = agent.pop_actions(self.iteration)
+        remaining_budget = agent.action_budget
         for action in actions:
+            try:
+                action = Action.from_dict(action)
+            except (TypeError, ValueError):
+                continue
             if valid_action(self, agent, action):
-                agent.valid_actions[self.iteration].append(action)
+                if action.budget > remaining_budget:
+                    continue
                 execute_action(self, agent, action)
+                remaining_budget -= action.budget
 
     def base_effects(self, agent: Agent):
         if not agent.alive:
             return
+
+        current_tile = self.map.grid[agent.pos_y][agent.pos_x]
+        in_own_shelter = agent.public_key in getattr(current_tile, "shelters", {})
         
         # hunger and thirst increase
         agent.hunger += 10
@@ -72,11 +83,14 @@ class Simulation:
         # mental health below 70 action budget 0.8
         # mental health 100 action budget 1
 
-        # warmth decrease if temp is low
-        if self.temp <= 0:
-            agent.warmth -= abs(self.temp) * 0.5
+        if in_own_shelter:
+            agent.mental_health = min(100, agent.mental_health + 2)
         else:
-            agent.warmth -= self.temp * 0.1
+            # warmth decrease if temp is low
+            if self.temp <= 0:
+                agent.warmth -= abs(self.temp) * 0.5
+            else:
+                agent.warmth -= self.temp * 0.1
 
         if agent.warmth < 30:
             agent.health -= (30 - agent.warmth) * 0.5
@@ -87,5 +101,13 @@ class Simulation:
 
     
     def setup_next_iteration(self):
+        next_iteration = self.iteration + 1
+        for row in self.map.grid:
+            for tile in row:
+                for crop in list(tile.crops):
+                    if crop["ready_iteration"] <= next_iteration:
+                        tile.resources[ResourceType.RAW_FOOD] += 3
+                        tile.crops.remove(crop)
+
         # update temp
         self.temp = self.temp - 0.5 * self.rng.random()

@@ -1,6 +1,7 @@
 from typing import Any, TYPE_CHECKING
 
 from .agent import Agent
+from .action import create_valid_actions
 from common import axl
 
 if TYPE_CHECKING:
@@ -44,8 +45,8 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
             "inventory": serialize_inventory(agent.inventory),
         },
         "visible_map": create_visible_map(sim, agent),
+        "valid_actions": create_valid_actions(sim, agent),
     }
-
 
 def create_visible_map(sim: "Simulation", agent: Agent) -> list[dict[str, Any]]:
     visible_map = []
@@ -57,8 +58,11 @@ def create_visible_map(sim: "Simulation", agent: Agent) -> list[dict[str, Any]]:
                 "x": tile.pos_x,
                 "y": tile.pos_y,
                 "type": tile.type.value,
-                "occupants": [occupant.id for occupant in tile.occupants],
+                "occupants": [{occupant.id: occupant.public_key} for occupant in tile.occupants],
                 "resources": serialize_inventory(tile.resources),
+                "shelters": list(tile.shelters.keys()),
+                "storages": list(tile.storages.keys()),
+                "crops": [crop.copy() for crop in tile.crops],
             }
         )
 

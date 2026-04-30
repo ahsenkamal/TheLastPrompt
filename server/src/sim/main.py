@@ -1,11 +1,10 @@
-import asyncio
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from .map import Map
 from .agent import Agent
 from .sim import Simulation
 from uuid import uuid4
 
-sim_executor = ProcessPoolExecutor()
+sim_executor = ThreadPoolExecutor()
 
 
 def sim_done(future):
@@ -18,13 +17,13 @@ def sim_done(future):
 
 
 def setup(agent_public_keys, seed):
-    loop = asyncio.get_running_loop()
-    sim_future = loop.run_in_executor(sim_executor, start, agent_public_keys, seed)
-    sim_future.add_done_callback(sim_done)
-    return sim_future
+    sim = create_simulation(agent_public_keys, seed)
+    sim.future = sim_executor.submit(sim.run)
+    sim.future.add_done_callback(sim_done)
+    return sim
 
 
-def start(agent_public_keys, seed):
+def create_simulation(agent_public_keys, seed):
     # generate map
     map = Map(seed)
     map.print_base_grid()
@@ -42,4 +41,4 @@ def start(agent_public_keys, seed):
     # run sim
     sim_id = uuid4().hex
     sim = Simulation(sim_id, map, agents, seed)
-    sim.run()
+    return sim
