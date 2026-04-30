@@ -1,7 +1,64 @@
+from dataclasses import dataclass
 from .types import *
 from .grid import generate_grid, print_grid
 from .agent import Agent
 import random
+
+
+@dataclass(frozen=True)
+class ResourceSpawnRule:
+    resource: ResourceType
+    chance: float
+    min_amount: int
+    max_amount: int
+
+
+RESOURCE_SPAWN_RULES: dict[TileType, tuple[ResourceSpawnRule, ...]] = {
+    TileType.LAND: (
+        ResourceSpawnRule(ResourceType.RAW_FOOD, 0.30, 1, 3),
+        ResourceSpawnRule(ResourceType.SEEDS, 0.35, 1, 2),
+        ResourceSpawnRule(ResourceType.MATERIALS, 0.20, 1, 2),
+        ResourceSpawnRule(ResourceType.DIRTY_WATER, 0.15, 1, 2),
+    ),
+    TileType.WATER: (
+        ResourceSpawnRule(ResourceType.DIRTY_WATER, 0.90, 2, 5),
+        ResourceSpawnRule(ResourceType.CLEAN_WATER, 0.20, 1, 2),
+        ResourceSpawnRule(ResourceType.RAW_FOOD, 0.25, 1, 2),
+    ),
+    TileType.FOREST: (
+        ResourceSpawnRule(ResourceType.WOOD, 0.80, 2, 6),
+        ResourceSpawnRule(ResourceType.RAW_FOOD, 0.30, 1, 3),
+        ResourceSpawnRule(ResourceType.SEEDS, 0.30, 1, 2),
+        ResourceSpawnRule(ResourceType.MATERIALS, 0.20, 1, 2),
+        ResourceSpawnRule(ResourceType.DIRTY_WATER, 0.10, 1, 2),
+    ),
+    TileType.MOUNTAIN: (
+        ResourceSpawnRule(ResourceType.SCRAP, 0.35, 1, 3),
+        ResourceSpawnRule(ResourceType.MATERIALS, 0.25, 1, 2),
+        ResourceSpawnRule(ResourceType.POWER_SOURCE, 0.05, 1, 1),
+    ),
+    TileType.BUILDING: (
+        ResourceSpawnRule(ResourceType.PROCESSED_FOOD, 0.45, 1, 3),
+        ResourceSpawnRule(ResourceType.CLEAN_WATER, 0.35, 1, 3),
+        ResourceSpawnRule(ResourceType.LIGHT_MEDS, 0.20, 1, 2),
+        ResourceSpawnRule(ResourceType.HEAVY_MEDS, 0.08, 1, 1),
+        ResourceSpawnRule(ResourceType.MATERIALS, 0.45, 1, 4),
+        ResourceSpawnRule(ResourceType.SCRAP, 0.50, 1, 4),
+        ResourceSpawnRule(ResourceType.TOOLS, 0.15, 1, 1),
+        ResourceSpawnRule(ResourceType.FUEL, 0.18, 1, 2),
+        ResourceSpawnRule(ResourceType.CLOTHING, 0.12, 1, 1),
+        ResourceSpawnRule(ResourceType.BACKPACK, 0.08, 1, 1),
+        ResourceSpawnRule(ResourceType.BANDAGE, 0.18, 1, 2),
+        ResourceSpawnRule(ResourceType.FISHING_ROD, 0.08, 1, 1),
+        ResourceSpawnRule(ResourceType.TRAP, 0.08, 1, 1),
+        ResourceSpawnRule(ResourceType.MAP, 0.05, 1, 1),
+        ResourceSpawnRule(ResourceType.BINOCULARS, 0.05, 1, 1),
+        ResourceSpawnRule(ResourceType.WEAPON_KNIFE, 0.10, 1, 1),
+        ResourceSpawnRule(ResourceType.WEAPON_BOW, 0.06, 1, 1),
+        ResourceSpawnRule(ResourceType.WEAPON_GUN, 0.03, 1, 1),
+        ResourceSpawnRule(ResourceType.AMMO, 0.10, 1, 4),
+    ),
+}
 
 
 class Tile:
@@ -20,15 +77,17 @@ class Map:
     def __init__(self, seed):
         self.seed = seed
         self.rng = random.Random(seed)
+        self.resource_rng = random.Random((seed + 1) * 1_000_003)
         self.base_grid = generate_grid(seed)
         self.grid = [
             [Tile(x, y, tile_type) for x, tile_type in enumerate(row)]
             for y, row in enumerate(self.base_grid)
         ]
-    
+        self.spawn_resources()
+
     def print_base_grid(self):
         print_grid(self.base_grid)
-    
+
     def print(self):
         for row in self.grid:
             for tile in row:
@@ -38,6 +97,16 @@ class Map:
                 else:
                     print(" ", end=" ")
             print()
+
+    def spawn_resources(self):
+        for row in self.grid:
+            for tile in row:
+                self.spawn_tile_resources(tile)
+
+    def spawn_tile_resources(self, tile: Tile):
+        for rule in RESOURCE_SPAWN_RULES.get(tile.type, ()):
+            if self.resource_rng.random() <= rule.chance:
+                tile.resources[rule.resource] += self.resource_rng.randint(rule.min_amount, rule.max_amount)
 
     def add_agents(self, agents):
         candidate_tiles = [
@@ -49,7 +118,7 @@ class Map:
 
         if len(candidate_tiles) < len(agents):
             raise Exception("Not enough valid tiles to spawn agent")
-        
+
         positions = self.rng.sample(candidate_tiles, len(agents))
         for agent, (x, y) in zip(agents, positions):
             tile = self.grid[y][x]
