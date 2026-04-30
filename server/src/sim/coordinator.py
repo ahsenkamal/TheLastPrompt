@@ -3,13 +3,10 @@ from typing import Any, TYPE_CHECKING
 from .agent import Agent
 from .action import create_valid_actions
 from common import axl
+from common.protocol import MESSAGE_TYPE_STATE_UPDATE, PROTOCOL_VERSION
 
 if TYPE_CHECKING:
     from .sim import Simulation
-
-
-PROTOCOL_VERSION = "1.0"
-MESSAGE_TYPE = "state_update"
 
 
 def send_states_to_agents(sim: "Simulation"):
@@ -25,7 +22,7 @@ def send_to_agent(agent: Agent, message: dict[str, Any]):
 def create_state_message(sim: "Simulation", agent: Agent) -> dict[str, Any]:
     return {
         "protocol_version": PROTOCOL_VERSION,
-        "message_type": MESSAGE_TYPE,
+        "message_type": MESSAGE_TYPE_STATE_UPDATE,
         "content": create_state_content(sim, agent),
     }
 

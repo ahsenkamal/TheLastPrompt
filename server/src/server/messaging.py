@@ -2,10 +2,15 @@ import asyncio
 import json
 
 from common import axl
+from common.protocol import (
+    MESSAGE_TYPE_AGENT_ACTION,
+    MESSAGE_TYPE_AGENT_MSG,
+    MESSAGE_TYPE_MATCHMAKING_JOIN,
+    PROTOCOL_VERSION,
+)
 import sim
 from sim.action import Action
 from .state import State
-from .config import MAP_SIZE, PROTOCOL_VERSION
 
 
 async def handle_message(sender, msg, state: State):
@@ -15,14 +20,16 @@ async def handle_message(sender, msg, state: State):
         return
 
     message_type = msg.get("message_type")
-    if message_type == 'MATCHMAKING_JOIN':
+    if message_type == MESSAGE_TYPE_MATCHMAKING_JOIN:
         state.add_to_queue(sender)
         if state.queue_ready():
             print("Matchmaking queue is ready, creating new game instance")
             agents, seed = state.pick_new_sim_agents()
             state.sim_instances.append(sim.setup(agents, seed))
-    elif message_type == "AGENT_ACTION":
+    elif message_type == MESSAGE_TYPE_AGENT_ACTION:
         handle_agent_action(sender, msg, state)
+    elif message_type == MESSAGE_TYPE_AGENT_MSG:
+        print(f"Received AGENT_MSG on server from {sender}; agents should send these directly")
 
 
 def handle_agent_action(sender: str, msg: dict, state: State):

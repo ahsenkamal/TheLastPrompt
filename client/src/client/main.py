@@ -12,7 +12,8 @@ def parse_args():
 
 def send_matchmaking_request():
     message = {
-        "type": "MATCHMAKING_JOIN",
+        "protocol_version": config.PROTOCOL_VERSION,
+        "message_type": config.MESSAGE_TYPE_MATCHMAKING_JOIN,
     }
     axl.send(message, config.SERVER_PUBLIC_KEY)
 
@@ -29,7 +30,7 @@ def main():
     # send matchmaking request to server
     send_matchmaking_request()
 
-    client_loop()
+    client_loop(self_public_key)
 
 if __name__ == "__main__":
     main()
