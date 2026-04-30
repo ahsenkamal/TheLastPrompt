@@ -9,6 +9,7 @@ from typing import Any
 
 from .llm import get_llm_response
 from .state import State
+from common.logging_config import demo_log
 
 ACTION_KEYS = ("action", "target", "consumable", "item")
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ def client_loop(self_public_key: str):
             len(pending_agent_messages),
         )
         pending_agent_messages = []
+        demo_log(logger, _demo_state_block(state))
 
         # create prompt for user
         final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + state.get_state_description()
@@ -107,6 +109,7 @@ def client_loop(self_public_key: str):
         reasoning = llm_response.get("reasoning")
         if isinstance(reasoning, str) and reasoning:
             logger.info("llm reasoning tick=%s\n%s", state.tick, reasoning)
+            demo_log(logger, "Reasoning: %s", _one_line(reasoning, 360))
         else:
             logger.info("llm reasoning tick=%s not returned", state.tick)
 
@@ -191,11 +194,18 @@ def _send_llm_response(
 
     tick = state.tick
     logger.info("accepted actions tick=%s actions=%s", tick, actions)
+    demo_log(logger, "Decision: %s", _demo_actions(actions, state))
     for action in actions:
         _send_agent_action(action, tick, self_public_key)
 
     talk_recipients = _talk_recipients(actions)
     for message in _filter_agent_messages(llm_response.get("messages", []), talk_recipients):
+        demo_log(
+            logger,
+            "You -> %s: %s",
+            _agent_label_from_public_key(state, message["recipient"]),
+            _one_line(message["content"], 240),
+        )
         _send_agent_message(message["recipient"], message["content"], tick, self_public_key)
 
 
@@ -332,3 +342,200 @@ def _talk_recipients(actions: list[dict[str, Any]]) -> set[str]:
         elif isinstance(target, dict) and isinstance(target.get("public_key"), str):
             recipients.add(target["public_key"])
     return recipients
+
+
+def _demo_state_block(state: State) -> str:
+    agent = _agent_state(state)
+    lines = [
+        f"Tick {state.tick} | temp {_number(state.sim_state.get('temp'))}C",
+        (
+            f"You are {_agent_label(agent)} at {_position_text(agent.get('position'))} | "
+            f"hp={_number(agent.get('health'))} "
+            f"hunger={_number(agent.get('hunger'))} "
+            f"thirst={_number(agent.get('thirst'))} "
+            f"warmth={_number(agent.get('warmth'))}"
+        ),
+        "Visible map:",
+        _render_visible_map(state),
+    ]
+
+    if state.agent_messages:
+        lines.append("Chat:")
+        for message in state.agent_messages:
+            lines.append(
+                f"{_agent_label_from_public_key(state, message.get('from'))}: "
+                f"{_one_line(str(message.get('message', '')), 240)}"
+            )
+
+    return "\n".join(lines)
+
+
+def _render_visible_map(state: State) -> str:
+    tiles = [
+        tile for tile in state.sim_state.get("visible_map", [])
+        if isinstance(tile, dict) and isinstance(tile.get("x"), int) and isinstance(tile.get("y"), int)
+    ]
+    if not tiles:
+        return "(no visible tiles)"
+
+    by_position = {(tile["x"], tile["y"]): tile for tile in tiles}
+    xs = [tile["x"] for tile in tiles]
+    ys = [tile["y"] for tile in tiles]
+    lines = []
+    for y in range(min(ys), max(ys) + 1):
+        cells = []
+        for x in range(min(xs), max(xs) + 1):
+            tile = by_position.get((x, y))
+            if tile is None:
+                cells.append("  ")
+                continue
+            cells.append(_demo_tile_cell(state, tile))
+        lines.append(" ".join(cells).rstrip())
+    return "\n".join(lines)
+
+
+def _demo_tile_cell(state: State, tile: dict[str, Any]) -> str:
+    tile_type = str(tile.get("type", "?"))
+    letter = tile_type[:1].upper() if tile_type else "?"
+    has_self = False
+    has_other = False
+    self_id = _agent_state(state).get("id")
+    for occupant in tile.get("occupants", []):
+        if not isinstance(occupant, dict) or not occupant.get("alive", True):
+            continue
+        if occupant.get("id") == self_id:
+            has_self = True
+        else:
+            has_other = True
+    marker = "*" if has_other else "@" if has_self else "."
+    return f"{letter}{marker}"
+
+
+def _demo_actions(actions: list[dict[str, Any]], state: State) -> str:
+    if not actions:
+        return "wait"
+    return ", ".join(_demo_action(action, state) for action in actions)
+
+
+def _demo_action(action: dict[str, Any], state: State) -> str:
+    action_name = str(action.get("action", "wait"))
+    target = action.get("target")
+    consumable = action.get("consumable")
+    item = action.get("item")
+
+    if action_name == "wait":
+        return "wait"
+    if action_name == "sleep":
+        return "sleep"
+    if action_name == "eat":
+        return f"eat {_plain_value(consumable)}"
+    if action_name == "drink":
+        return f"drink {_plain_value(consumable)}"
+    if action_name == "heal":
+        return f"heal with {_plain_value(consumable)}"
+    if action_name == "talk_to":
+        return f"talk to {_agent_label_from_target(state, target)}"
+    if action_name == "warmup":
+        return f"warm up with {_plain_value(consumable)}"
+    if action_name == "train":
+        return "train"
+    if action_name == "change_stance":
+        return f"switch stance to {_target_text(target)}"
+    if action_name == "move":
+        return f"move to {_target_text(target)}"
+    if action_name == "change_status":
+        return f"switch status to {_target_text(target)}"
+    if action_name == "create_shelter":
+        return f"build shelter at {_target_text(target)}"
+    if action_name == "attack":
+        return f"attack {_agent_label_from_target(state, target)}"
+    if action_name == "grow_food":
+        return f"plant food at {_target_text(target)}"
+    if action_name == "cook_food":
+        return f"cook {_plain_value(consumable)} with {_plain_value(item)}"
+    if action_name == "steal":
+        return f"steal at {_target_text(target)}"
+    if action_name == "create_storage":
+        return f"build storage at {_target_text(target)}"
+    if action_name == "gather_wood":
+        return f"gather wood at {_target_text(target)}"
+    if action_name == "pick_resource":
+        return f"pick up {_plain_value(consumable)}"
+    if action_name == "fish":
+        return f"fish at {_target_text(target)}"
+    if action_name == "trade":
+        return f"trade with {_agent_label_from_target(state, target)}"
+    return action_name.replace("_", " ")
+
+
+def _agent_state(state: State) -> dict[str, Any]:
+    agent = state.sim_state.get("agent", {})
+    return agent if isinstance(agent, dict) else {}
+
+
+def _agent_label(agent: dict[str, Any]) -> str:
+    agent_id = agent.get("id")
+    return f"A{agent_id}" if agent_id is not None else "A?"
+
+
+def _agent_label_from_target(state: State, target: Any) -> str:
+    if isinstance(target, dict):
+        if "id" in target:
+            return f"A{target['id']}"
+        if isinstance(target.get("public_key"), str):
+            return _agent_label_from_public_key(state, target["public_key"])
+    if isinstance(target, int):
+        return f"A{target}"
+    if isinstance(target, str):
+        return _agent_label_from_public_key(state, target)
+    return "A?"
+
+
+def _agent_label_from_public_key(state: State, public_key: Any) -> str:
+    if not isinstance(public_key, str) or not public_key:
+        return "A?"
+
+    self_agent = _agent_state(state)
+    if self_agent.get("public_key") == public_key:
+        return _agent_label(self_agent)
+
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if isinstance(occupant, dict) and occupant.get("public_key") == public_key:
+                return _agent_label(occupant)
+    return "A?"
+
+
+def _target_text(target: Any) -> str:
+    if isinstance(target, dict) and "x" in target and "y" in target:
+        return f"({target['x']},{target['y']})"
+    return _plain_value(target)
+
+
+def _position_text(position: Any) -> str:
+    if isinstance(position, dict) and "x" in position and "y" in position:
+        return f"({position['x']},{position['y']})"
+    return "(?,?)"
+
+
+def _plain_value(value: Any) -> str:
+    if value is None:
+        return "?"
+    return str(value)
+
+
+def _number(value: Any) -> str:
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else f"{value:.1f}"
+    return "?"
+
+
+def _one_line(text: str, limit: int) -> str:
+    value = " ".join(text.split())
+    if len(value) <= limit:
+        return value
+    return value[: limit - 3].rstrip() + "..."

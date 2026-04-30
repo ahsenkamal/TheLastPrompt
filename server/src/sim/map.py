@@ -110,6 +110,16 @@ class Map:
             lines.append(" ".join(cells).rstrip())
         return "\n".join(lines)
 
+    def render_demo(self) -> str:
+        lines = []
+        for row in self.grid:
+            cells = []
+            for tile in row:
+                marker = "*" if any(agent.alive for agent in tile.occupants) else "."
+                cells.append(f"{tile.type.value[0].upper()}{marker}")
+            lines.append(" ".join(cells))
+        return "\n".join(lines)
+
     def render_resources(self) -> str:
         lines = []
         for row in self.grid:

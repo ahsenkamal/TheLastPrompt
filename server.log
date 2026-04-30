@@ -1,0 +1,344 @@
+2026-05-01 04:03:23 INFO [server] server.main: server public_key=08f33349d093cde382b99ac4eba3e60888e91042a7ba38a8cd79b7ec03438986 sim_size=2
+2026-05-01 04:03:29 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=MATCHMAKING_JOIN
+2026-05-01 04:03:29 INFO [server] server.messaging: matchmaking join transport_sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff agent_public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 queue_size=1 sim_size=2
+2026-05-01 04:03:33 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=MATCHMAKING_JOIN
+2026-05-01 04:03:33 INFO [server] server.messaging: matchmaking join transport_sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff agent_public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 queue_size=2 sim_size=2
+2026-05-01 04:03:33 INFO [server] server.messaging: matchmaking ready agents=['bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'] seed=1
+2026-05-01 04:03:33 INFO [server] sim.main: creating simulation seed=1 agents=['bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462']
+2026-05-01 04:03:33 INFO [server] sim.main: initial resources
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'raw_food': 3, 'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(2,1) building: {'materials': 2, 'scrap': 2, 'ammo': 3}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:03:33 INFO [server] sim.main: initial map
+L.    W.    B.    L1    M.
+F.    L0    B.    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:03:33 INFO [server] sim.main: simulation created sim_id=63450b8ce2174b36b694265ad152a822 seed=1
+2026-05-01 04:03:33 INFO [server] sim.sim: tick start sim_id=63450b8ce2174b36b694265ad152a822 tick=0 temp=15.00 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 1, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}]
+2026-05-01 04:03:33 INFO [server] sim.sim: tick map sim_id=63450b8ce2174b36b694265ad152a822 tick=0
+L.    W.    B.    L1    M.
+F.    L0    B.    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:03:33 INFO [server] sim.sim: tick resources sim_id=63450b8ce2174b36b694265ad152a822 tick=0
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'raw_food': 3, 'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(2,1) building: {'materials': 2, 'scrap': 2, 'ammo': 3}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:03:34 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0 public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 valid_actions=10 visible_tiles=16
+2026-05-01 04:03:34 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 valid_actions=10 visible_tiles=12
+2026-05-01 04:03:34 INFO [server] sim.sim: waiting for actions sim_id=63450b8ce2174b36b694265ad152a822 tick=0 seconds=60
+2026-05-01 04:03:57 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:03:57 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'raw_food'}
+2026-05-01 04:03:58 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:03:58 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=0 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'}
+2026-05-01 04:03:58 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:03:58 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=0 action={'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'}
+2026-05-01 04:04:06 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:04:06 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=0 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 1, 'y': 0}}
+2026-05-01 04:04:06 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:04:06 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'raw_food'}
+2026-05-01 04:04:07 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:04:07 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'dirty_water'}
+2026-05-01 04:04:34 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 queued=3 actions=[{'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'raw_food'}, {'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'}, {'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'}]
+2026-05-01 04:04:34 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'raw_food'} remaining_budget=1.00
+2026-05-01 04:04:34 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} remaining_budget=0.90
+2026-05-01 04:04:34 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'} remaining_budget=0.90
+2026-05-01 04:04:34 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} remaining_budget=0.80
+2026-05-01 04:04:34 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 action={'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'} remaining_budget=0.80
+2026-05-01 04:04:34 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} remaining_budget=0.80
+2026-05-01 04:04:34 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=1 in_own_shelter=False before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}}
+2026-05-01 04:04:34 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0 queued=3 actions=[{'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 1, 'y': 0}}, {'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'raw_food'}, {'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'dirty_water'}]
+2026-05-01 04:04:34 WARNING [server] sim.sim: discard unavailable action sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 1, 'y': 0}}
+2026-05-01 04:04:34 WARNING [server] sim.sim: discard unavailable action sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'raw_food'}
+2026-05-01 04:04:34 WARNING [server] sim.sim: discard unavailable action sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'dirty_water'}
+2026-05-01 04:04:34 INFO [server] sim.sim: no valid actions executed; fallback to wait sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0
+2026-05-01 04:04:34 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=0 agent=0 in_own_shelter=False before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 1, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 0, 'warmth': 100, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 1, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}
+2026-05-01 04:04:34 INFO [server] sim.sim: next iteration setup sim_id=63450b8ce2174b36b694265ad152a822 tick=0 next_tick=1 temp 15.00 -> 14.72
+2026-05-01 04:04:34 INFO [server] sim.sim: tick end sim_id=63450b8ce2174b36b694265ad152a822 tick=0 temp=14.72 agents=[{'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}}, {'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 1, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}]
+2026-05-01 04:04:34 INFO [server] sim.sim: tick start sim_id=63450b8ce2174b36b694265ad152a822 tick=1 temp=14.72 agents=[{'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}}, {'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 1, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}]
+2026-05-01 04:04:34 INFO [server] sim.sim: tick map sim_id=63450b8ce2174b36b694265ad152a822 tick=1
+L.    W.    B.    L1    M.
+F.    L0    B.    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:04:34 INFO [server] sim.sim: tick resources sim_id=63450b8ce2174b36b694265ad152a822 tick=1
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(2,1) building: {'materials': 2, 'scrap': 2, 'ammo': 3}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:04:35 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 valid_actions=11 visible_tiles=12
+2026-05-01 04:04:35 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=0 public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 valid_actions=10 visible_tiles=16
+2026-05-01 04:04:35 INFO [server] sim.sim: waiting for actions sim_id=63450b8ce2174b36b694265ad152a822 tick=1 seconds=60
+2026-05-01 04:04:46 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:04:46 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=1 action={'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'}
+2026-05-01 04:04:46 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:04:46 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=1 action={'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'}
+2026-05-01 04:05:04 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:05:04 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=1 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 2, 'y': 1}}
+2026-05-01 04:05:04 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:05:04 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=1 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'seeds'}
+2026-05-01 04:05:35 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=0 queued=2 actions=[{'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 2, 'y': 1}}, {'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'seeds'}]
+2026-05-01 04:05:35 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=0 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 2, 'y': 1}} remaining_budget=1.00
+2026-05-01 04:05:35 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 1, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} remaining_budget=0.70
+2026-05-01 04:05:35 WARNING [server] sim.sim: discard unavailable action sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'seeds'}
+2026-05-01 04:05:35 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=0 in_own_shelter=False before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}
+2026-05-01 04:05:35 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 queued=2 actions=[{'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'}, {'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'}]
+2026-05-01 04:05:35 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 action={'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'} remaining_budget=1.00
+2026-05-01 04:05:35 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 3}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}} remaining_budget=0.80
+2026-05-01 04:05:35 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 action={'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'} remaining_budget=0.80
+2026-05-01 04:05:35 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}} remaining_budget=0.80
+2026-05-01 04:05:35 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=1 agent=1 in_own_shelter=False before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 10, 'warmth': 98.5, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}}
+2026-05-01 04:05:35 INFO [server] sim.sim: next iteration setup sim_id=63450b8ce2174b36b694265ad152a822 tick=1 next_tick=2 temp 14.72 -> 14.59
+2026-05-01 04:05:35 INFO [server] sim.sim: tick end sim_id=63450b8ce2174b36b694265ad152a822 tick=1 temp=14.59 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}}]
+2026-05-01 04:05:35 INFO [server] sim.sim: tick start sim_id=63450b8ce2174b36b694265ad152a822 tick=2 temp=14.59 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}}]
+2026-05-01 04:05:35 INFO [server] sim.sim: tick map sim_id=63450b8ce2174b36b694265ad152a822 tick=2
+L.    W.    B.    L1    M.
+F.    L.    B0    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:05:35 INFO [server] sim.sim: tick resources sim_id=63450b8ce2174b36b694265ad152a822 tick=2
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(2,1) building: {'materials': 2, 'scrap': 2, 'ammo': 3}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:05:36 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 valid_actions=10 visible_tiles=20
+2026-05-01 04:05:36 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 valid_actions=11 visible_tiles=12
+2026-05-01 04:05:36 INFO [server] sim.sim: waiting for actions sim_id=63450b8ce2174b36b694265ad152a822 tick=2 seconds=60
+2026-05-01 04:05:47 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:05:47 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=2 action={'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'}
+2026-05-01 04:05:48 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:05:48 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=2 action={'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'}
+2026-05-01 04:06:06 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:06:06 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=2 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'materials'}
+2026-05-01 04:06:07 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:06:07 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=2 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'scrap'}
+2026-05-01 04:06:08 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:06:08 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=2 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'ammo'}
+2026-05-01 04:06:36 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 queued=3 actions=[{'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'materials'}, {'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'scrap'}, {'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'ammo'}]
+2026-05-01 04:06:36 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'materials'} remaining_budget=1.00
+2026-05-01 04:06:36 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2}} remaining_budget=0.90
+2026-05-01 04:06:36 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'scrap'} remaining_budget=0.90
+2026-05-01 04:06:36 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2}} remaining_budget=0.80
+2026-05-01 04:06:36 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 action={'action': 'pick_resource', 'budget': 0.1, 'description': 'Pick a resource from the current tile.', 'consumable': 'ammo'} remaining_budget=0.80
+2026-05-01 04:06:36 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} remaining_budget=0.70
+2026-05-01 04:06:36 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=0 in_own_shelter=False before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}
+2026-05-01 04:06:36 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 queued=2 actions=[{'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'}, {'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'}]
+2026-05-01 04:06:36 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 action={'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'} remaining_budget=1.00
+2026-05-01 04:06:36 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 2}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}} remaining_budget=0.80
+2026-05-01 04:06:36 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 action={'action': 'wait', 'budget': 0.0, 'description': 'Do nothing and skip the turn.'} remaining_budget=0.80
+2026-05-01 04:06:36 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}} remaining_budget=0.80
+2026-05-01 04:06:36 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=2 agent=1 in_own_shelter=False before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 20, 'warmth': 97.03, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}}
+2026-05-01 04:06:36 INFO [server] sim.sim: next iteration setup sim_id=63450b8ce2174b36b694265ad152a822 tick=2 next_tick=3 temp 14.59 -> 14.21
+2026-05-01 04:06:36 INFO [server] sim.sim: tick end sim_id=63450b8ce2174b36b694265ad152a822 tick=2 temp=14.21 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}}]
+2026-05-01 04:06:36 INFO [server] sim.sim: tick start sim_id=63450b8ce2174b36b694265ad152a822 tick=3 temp=14.21 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}}]
+2026-05-01 04:06:36 INFO [server] sim.sim: tick map sim_id=63450b8ce2174b36b694265ad152a822 tick=3
+L.    W.    B.    L1    M.
+F.    L.    B0    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:06:36 INFO [server] sim.sim: tick resources sim_id=63450b8ce2174b36b694265ad152a822 tick=3
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:06:37 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 valid_actions=11 visible_tiles=20
+2026-05-01 04:06:38 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 valid_actions=11 visible_tiles=12
+2026-05-01 04:06:38 INFO [server] sim.sim: waiting for actions sim_id=63450b8ce2174b36b694265ad152a822 tick=3 seconds=60
+2026-05-01 04:06:55 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:06:55 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=3 action={'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'}
+2026-05-01 04:06:56 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:06:56 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=3 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'}
+2026-05-01 04:07:22 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:07:22 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=3 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 3, 'y': 1}}
+2026-05-01 04:07:23 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:07:23 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=3 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 3, 'y': 0}}
+2026-05-01 04:07:23 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:07:23 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=3 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}
+2026-05-01 04:07:38 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 queued=3 actions=[{'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 3, 'y': 1}}, {'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 3, 'y': 0}}, {'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}]
+2026-05-01 04:07:38 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 3, 'y': 1}} remaining_budget=1.00
+2026-05-01 04:07:38 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 2, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} remaining_budget=0.70
+2026-05-01 04:07:38 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 action={'action': 'move', 'budget': 0.3, 'description': 'Move to a visible tile.', 'target': {'x': 3, 'y': 0}} remaining_budget=0.70
+2026-05-01 04:07:38 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 1}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} remaining_budget=0.40
+2026-05-01 04:07:38 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'} remaining_budget=0.40
+2026-05-01 04:07:38 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} remaining_budget=0.30
+2026-05-01 04:07:38 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=0 in_own_shelter=False before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 30, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}
+2026-05-01 04:07:38 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 queued=2 actions=[{'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'}, {'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'}]
+2026-05-01 04:07:38 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 action={'action': 'eat', 'budget': 0.2, 'description': 'Consume food to reduce hunger.', 'consumable': 'raw_food'} remaining_budget=1.00
+2026-05-01 04:07:38 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'raw_food': 1}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} remaining_budget=0.80
+2026-05-01 04:07:38 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'} remaining_budget=0.80
+2026-05-01 04:07:38 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} remaining_budget=0.70
+2026-05-01 04:07:38 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=3 agent=1 in_own_shelter=False before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 0, 'thirst': 30, 'warmth': 95.57, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}
+2026-05-01 04:07:38 INFO [server] sim.sim: next iteration setup sim_id=63450b8ce2174b36b694265ad152a822 tick=3 next_tick=4 temp 14.21 -> 13.88
+2026-05-01 04:07:38 INFO [server] sim.sim: tick end sim_id=63450b8ce2174b36b694265ad152a822 tick=3 temp=13.88 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}]
+2026-05-01 04:07:38 INFO [server] sim.sim: tick start sim_id=63450b8ce2174b36b694265ad152a822 tick=4 temp=13.88 agents=[{'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}, {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}]
+2026-05-01 04:07:38 INFO [server] sim.sim: tick map sim_id=63450b8ce2174b36b694265ad152a822 tick=4
+L.    W.    B.    L1,0  M.
+F.    L.    B.    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:07:38 INFO [server] sim.sim: tick resources sim_id=63450b8ce2174b36b694265ad152a822 tick=4
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:07:38 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 valid_actions=12 visible_tiles=12
+2026-05-01 04:07:39 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=1 public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 valid_actions=10 visible_tiles=12
+2026-05-01 04:07:39 INFO [server] sim.sim: waiting for actions sim_id=63450b8ce2174b36b694265ad152a822 tick=4 seconds=60
+2026-05-01 04:07:56 INFO [server] server.messaging: received message sender=21efa83edf5ecab69768cb0a218fdfffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:07:56 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 agent=1 tick=4 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'}
+2026-05-01 04:08:21 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:08:21 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=4 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}
+2026-05-01 04:08:22 INFO [server] server.messaging: received message sender=bbbe1263febfd7719561b76acba37fffffffffffffffffffffffffffffffffff type=AGENT_ACTION
+2026-05-01 04:08:22 INFO [server] server.messaging: queued action sim_id=63450b8ce2174b36b694265ad152a822 sender=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 agent=0 tick=4 action={'action': 'trade', 'budget': 0.1, 'description': 'Reserve budget to trade with a visible agent.', 'target': {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}}
+2026-05-01 04:08:39 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=1 queued=1 actions=[{'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'}]
+2026-05-01 04:08:39 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=1 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123'} remaining_budget=1.00
+2026-05-01 04:08:39 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=1 before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} remaining_budget=0.90
+2026-05-01 04:08:39 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=1 in_own_shelter=False before={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 10, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}} after={'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 50, 'warmth': 92.76, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}
+2026-05-01 04:08:39 INFO [server] sim.sim: processing actions sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 queued=2 actions=[{'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}, {'action': 'trade', 'budget': 0.1, 'description': 'Reserve budget to trade with a visible agent.', 'target': {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}}]
+2026-05-01 04:08:39 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 action={'action': 'talk_to', 'budget': 0.1, 'description': 'Talked to another agent', 'target': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'} remaining_budget=1.00
+2026-05-01 04:08:39 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} remaining_budget=0.90
+2026-05-01 04:08:39 INFO [server] sim.sim: execute action sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 action={'action': 'trade', 'budget': 0.1, 'description': 'Reserve budget to trade with a visible agent.', 'target': {'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462'}} remaining_budget=0.90
+2026-05-01 04:08:39 INFO [server] sim.sim: action result sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} remaining_budget=0.80
+2026-05-01 04:08:39 INFO [server] sim.sim: base effects sim_id=63450b8ce2174b36b694265ad152a822 tick=4 agent=0 in_own_shelter=False before={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 40, 'thirst': 40, 'warmth': 94.15, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}} after={'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 50, 'thirst': 50, 'warmth': 92.76, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}
+2026-05-01 04:08:39 INFO [server] sim.sim: next iteration setup sim_id=63450b8ce2174b36b694265ad152a822 tick=4 next_tick=5 temp 13.88 -> 13.83
+2026-05-01 04:08:39 INFO [server] sim.sim: tick end sim_id=63450b8ce2174b36b694265ad152a822 tick=4 temp=13.83 agents=[{'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 50, 'warmth': 92.76, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}, {'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 50, 'thirst': 50, 'warmth': 92.76, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}]
+2026-05-01 04:08:39 INFO [server] sim.sim: tick start sim_id=63450b8ce2174b36b694265ad152a822 tick=5 temp=13.83 agents=[{'id': 1, 'public_key': '21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 20, 'thirst': 50, 'warmth': 92.76, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {}}, {'id': 0, 'public_key': 'bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123', 'alive': True, 'pos': {'x': 3, 'y': 0}, 'health': 100, 'mental_health': 100, 'hunger': 50, 'thirst': 50, 'warmth': 92.76, 'strength': 33, 'stance': 'normal', 'status': [], 'inventory': {'materials': 2, 'scrap': 2, 'ammo': 3}}]
+2026-05-01 04:08:39 INFO [server] sim.sim: tick map sim_id=63450b8ce2174b36b694265ad152a822 tick=5
+L.    W.    B.    L1,0  M.
+F.    L.    B.    L.    M.
+L.    F.    F.    F.    M.
+B.    W.    L.    F.    F.
+L.    W.    B.    F.    F.
+2026-05-01 04:08:39 INFO [server] sim.sim: tick resources sim_id=63450b8ce2174b36b694265ad152a822 tick=5
+(1,0) water: {'raw_food': 1, 'dirty_water': 4}
+(2,0) building: {'light_meds': 1, 'materials': 2, 'clothing': 1}
+(3,0) land: {'seeds': 1}
+(0,1) forest: {'wood': 3, 'seeds': 1}
+(1,1) land: {'seeds': 2}
+(4,1) mountain: {'materials': 2, 'scrap': 2}
+(0,2) land: {'materials': 2}
+(1,2) forest: {'dirty_water': 1}
+(2,2) forest: {'raw_food': 2, 'dirty_water': 2, 'wood': 3}
+(3,2) forest: {'wood': 2, 'seeds': 1}
+(4,2) mountain: {'materials': 1}
+(0,3) building: {'processed_food': 2, 'light_meds': 1, 'tools': 1, 'clothing': 1}
+(2,3) land: {'materials': 2}
+(3,3) forest: {'raw_food': 1, 'wood': 4, 'seeds': 2}
+(4,3) forest: {'raw_food': 1, 'wood': 4}
+(0,4) land: {'raw_food': 3}
+(1,4) water: {'dirty_water': 3}
+(2,4) building: {'processed_food': 2, 'light_meds': 2, 'knife': 1, 'map': 1, 'trap': 1}
+(3,4) forest: {'raw_food': 3, 'materials': 1, 'wood': 2}
+(4,4) forest: {'wood': 2}
+2026-05-01 04:08:39 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=5 agent=1 public_key=21efa83edf5ecab69768cb0a218fd5b7edc7751d556b0e904d8ee18023d57462 valid_actions=10 visible_tiles=12
+2026-05-01 04:08:40 INFO [server] sim.coordinator: sent state sim_id=63450b8ce2174b36b694265ad152a822 tick=5 agent=0 public_key=bbbe1263febfd7719561b76acba371f94a4f3d0b0289767a9c3a7d2f7a3eb123 valid_actions=12 visible_tiles=12
+2026-05-01 04:08:40 INFO [server] sim.sim: waiting for actions sim_id=63450b8ce2174b36b694265ad152a822 tick=5 seconds=60
