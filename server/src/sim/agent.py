@@ -4,7 +4,7 @@ from threading import Lock
 from typing import TYPE_CHECKING
 
 from .types import ResourceType
-from server.config import MAP_SIZE
+from server.config import MAP_SIZE, NORMAL_VISIBILITY_RADIUS, SNEAK_VISIBILITY_RADIUS
 
 if TYPE_CHECKING:
     from .action import Action
@@ -46,7 +46,7 @@ class Agent:
             return self.actions.pop(iteration, [])
 
     def update_visible_tiles(self):
-        radius = 1 if self.stance == "sneak" else 3
+        radius = SNEAK_VISIBILITY_RADIUS if self.stance == "sneak" else NORMAL_VISIBILITY_RADIUS
         self.visible_tiles = [
             (x, y)
             for y in range(max(0, self.pos_y - radius), min(MAP_SIZE, self.pos_y + radius + 1))

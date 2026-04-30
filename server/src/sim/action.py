@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from .sim import Simulation
 
 from .types import ResourceType, TileType
+from server.config import NORMAL_VISIBILITY_RADIUS, SNEAK_VISIBILITY_RADIUS
 
 
 class ActionType(StrEnum):
@@ -384,7 +385,7 @@ def _add_status_actions(actions: list[Action], agent: "Agent") -> None:
 
 
 def _add_move_actions(actions: list[Action], sim: "Simulation", agent: "Agent") -> None:
-    move_radius = 1 if getattr(agent, "stance", "normal") == "sneak" else 3
+    move_radius = SNEAK_VISIBILITY_RADIUS if getattr(agent, "stance", "normal") == "sneak" else NORMAL_VISIBILITY_RADIUS
 
     for x, y in agent.visible_tiles:
         if x == agent.pos_x and y == agent.pos_y:
