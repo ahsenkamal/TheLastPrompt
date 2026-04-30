@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 def client_loop(self_public_key: str):
     state: State | None = None
     pending_agent_messages: list[dict[str, Any]] = []
+    server_sender = config.SERVER_PEER_ID or config.SERVER_PUBLIC_KEY
+    logger.info(
+        "using server id=%s axl_match_prefix=%s",
+        server_sender,
+        config.AXL_PEER_ID_MATCH_PREFIX,
+    )
 
     while True:
         # wait for state update from server
@@ -44,13 +50,26 @@ def client_loop(self_public_key: str):
             _queue_agent_message(pending_agent_messages, sender, msg)
             continue
 
-        if sender != config.SERVER_PUBLIC_KEY:
-            logger.warning("received message from unknown sender=%s type=%s", sender, message_type)
-            continue
-
         if message_type != config.MESSAGE_TYPE_STATE_UPDATE:
             logger.warning("received unknown message type sender=%s type=%s", sender, message_type)
             continue
+
+        if not _peer_ids_match(sender, server_sender):
+            logger.warning(
+                "received STATE_UPDATE from unexpected sender=%s expected=%s match_prefix=%s",
+                sender,
+                server_sender,
+                config.AXL_PEER_ID_MATCH_PREFIX,
+            )
+            continue
+
+        if sender != server_sender:
+            logger.info(
+                "accepted server sender by AXL prefix sender=%s expected=%s prefix=%s",
+                sender,
+                server_sender,
+                config.AXL_PEER_ID_MATCH_PREFIX,
+            )
 
         # update client state
         received_state = msg.get("content")
@@ -106,6 +125,19 @@ def _decode_message(raw_msg: str) -> dict[str, Any] | None:
         logger.warning("received non-object JSON message raw=%s", raw_msg)
         return None
     return msg
+
+
+def _peer_ids_match(actual: str, expected: str) -> bool:
+    if actual == expected:
+        return True
+
+    prefix_len = config.AXL_PEER_ID_MATCH_PREFIX
+    if prefix_len <= 0:
+        return False
+    if len(actual) < prefix_len or len(expected) < prefix_len:
+        return False
+
+    return actual[:prefix_len].lower() == expected[:prefix_len].lower()
 
 
 def _queue_agent_message(

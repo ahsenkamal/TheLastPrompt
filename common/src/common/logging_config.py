@@ -16,3 +16,4 @@ def setup_logging(component: str) -> None:
     )
 
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("charset_normalizer").setLevel(logging.WARNING)
