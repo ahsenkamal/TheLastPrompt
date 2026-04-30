@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 from .types import *
 from .grid import generate_grid, print_grid
 from .agent import Agent
@@ -98,6 +99,26 @@ class Map:
                     print(" ", end=" ")
             print()
 
+    def render(self) -> str:
+        lines = []
+        for row in self.grid:
+            cells = []
+            for tile in row:
+                occupants = ",".join(str(agent.id) for agent in tile.occupants if agent.alive)
+                marker = occupants if occupants else "."
+                cells.append(f"{tile.type.value[0].upper()}{marker}".ljust(5))
+            lines.append(" ".join(cells).rstrip())
+        return "\n".join(lines)
+
+    def render_resources(self) -> str:
+        lines = []
+        for row in self.grid:
+            for tile in row:
+                resources = _positive_amounts(tile.resources)
+                if resources:
+                    lines.append(f"({tile.pos_x},{tile.pos_y}) {tile.type.value}: {resources}")
+        return "\n".join(lines) if lines else "no resources"
+
     def spawn_resources(self):
         for row in self.grid:
             for tile in row:
@@ -126,3 +147,11 @@ class Map:
             agent.pos_x = x
             agent.pos_y = y
             agent.update_visible_tiles()
+
+
+def _positive_amounts(values: dict[Any, int]) -> dict[str, int]:
+    return {
+        str(resource): amount
+        for resource, amount in values.items()
+        if amount > 0
+    }

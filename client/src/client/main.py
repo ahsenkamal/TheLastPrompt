@@ -2,8 +2,13 @@ import argparse
 from pathlib import Path
 
 from common import axl
+from common.logging_config import setup_logging
 from . import config
 from .sim import client_loop
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -16,8 +21,10 @@ def send_matchmaking_request():
         "message_type": config.MESSAGE_TYPE_MATCHMAKING_JOIN,
     }
     axl.send(message, config.SERVER_PUBLIC_KEY)
+    logger.info("sent matchmaking request to server=%s", config.SERVER_PUBLIC_KEY)
 
 def main():
+    setup_logging("client")
     args = parse_args()
     config.USER_PROMPT = args.prompt_path.read_text(encoding="utf-8").strip()
 
@@ -26,6 +33,7 @@ def main():
 
     # setup axl
     self_public_key = axl.get_self_public_key()
+    logger.info("client public_key=%s prompt_path=%s", self_public_key, args.prompt_path)
 
     # send matchmaking request to server
     send_matchmaking_request()

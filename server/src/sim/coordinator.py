@@ -1,4 +1,5 @@
 from typing import Any, TYPE_CHECKING
+import logging
 
 from .agent import Agent
 from .action import create_valid_actions
@@ -9,6 +10,9 @@ if TYPE_CHECKING:
     from .sim import Simulation
 
 
+logger = logging.getLogger(__name__)
+
+
 def send_states_to_agents(sim: "Simulation"):
     for agent in sim.agents:
         message = create_state_message(sim, agent)
@@ -17,6 +21,16 @@ def send_states_to_agents(sim: "Simulation"):
 
 def send_to_agent(agent: Agent, message: dict[str, Any]):
     axl.send(message, agent.public_key)
+    content = message["content"]
+    logger.info(
+        "sent state sim_id=%s tick=%s agent=%s public_key=%s valid_actions=%s visible_tiles=%s",
+        content["sim_id"],
+        content["tick"],
+        agent.id,
+        agent.public_key,
+        len(content["valid_actions"]),
+        len(content["visible_map"]),
+    )
 
 
 def create_state_message(sim: "Simulation", agent: Agent) -> dict[str, Any]:

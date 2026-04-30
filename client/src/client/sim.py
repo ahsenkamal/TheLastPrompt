@@ -4,12 +4,14 @@ from . import config
 from common import axl
 import time
 import json
+import logging
 from typing import Any
 
 from .llm import get_llm_response
 from .state import State
 
 ACTION_KEYS = ("action", "target", "consumable", "item")
+logger = logging.getLogger(__name__)
 
 
 def client_loop(self_public_key: str):
@@ -29,26 +31,31 @@ def client_loop(self_public_key: str):
             continue
 
         if msg.get("protocol_version") != config.PROTOCOL_VERSION:
-            print(f"Received message with unsupported protocol version: {msg.get('protocol_version')}")
+            logger.warning(
+                "received unsupported protocol sender=%s version=%s",
+                sender,
+                msg.get("protocol_version"),
+            )
             continue
 
         message_type = msg.get("message_type")
+        logger.info("received message sender=%s type=%s", sender, message_type)
         if message_type == config.MESSAGE_TYPE_AGENT_MSG:
             _queue_agent_message(pending_agent_messages, sender, msg)
             continue
 
         if sender != config.SERVER_PUBLIC_KEY:
-            print(f"Received message from unknown sender: {sender}")
+            logger.warning("received message from unknown sender=%s type=%s", sender, message_type)
             continue
 
         if message_type != config.MESSAGE_TYPE_STATE_UPDATE:
-            print(f"Received message with unknown type: {message_type}")
+            logger.warning("received unknown message type sender=%s type=%s", sender, message_type)
             continue
 
         # update client state
         received_state = msg.get("content")
         if not isinstance(received_state, dict):
-            print("Received STATE_UPDATE without object content")
+            logger.warning("received STATE_UPDATE without object content")
             continue
 
         if state is None:
@@ -56,14 +63,33 @@ def client_loop(self_public_key: str):
         else:
             state.update(received_state)
         state.set_agent_messages(pending_agent_messages)
+        logger.info(
+            "state update sim_id=%s tick=%s agent=%s valid_actions=%s incoming_agent_messages=%s",
+            received_state.get("sim_id"),
+            state.tick,
+            received_state.get("agent"),
+            len(state.get_valid_actions()),
+            len(pending_agent_messages),
+        )
         pending_agent_messages = []
 
         # create prompt for user
         final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + state.get_state_description()
-        print(final_prompt)
+        logger.debug("final prompt tick=%s\n%s", state.tick, final_prompt)
 
         # get llm response
         llm_response = get_llm_response(final_prompt)
+        logger.info(
+            "llm decision tick=%s actions=%s messages=%s",
+            state.tick,
+            llm_response.get("actions", []),
+            llm_response.get("messages", []),
+        )
+        reasoning = llm_response.get("reasoning")
+        if isinstance(reasoning, str) and reasoning:
+            logger.info("llm reasoning tick=%s\n%s", state.tick, reasoning)
+        else:
+            logger.info("llm reasoning tick=%s not returned", state.tick)
 
         # send response to server
         _send_llm_response(llm_response, state, self_public_key)
@@ -73,11 +99,11 @@ def _decode_message(raw_msg: str) -> dict[str, Any] | None:
     try:
         msg = json.loads(raw_msg)
     except json.JSONDecodeError as exc:
-        print(f"Received invalid JSON message: {exc}")
+        logger.warning("received invalid JSON message error=%s raw=%s", exc, raw_msg)
         return None
 
     if not isinstance(msg, dict):
-        print("Received non-object JSON message")
+        logger.warning("received non-object JSON message raw=%s", raw_msg)
         return None
     return msg
 
@@ -105,13 +131,14 @@ def _queue_agent_message(
             "message": message_text.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
         }
     )
+    logger.info("queued incoming agent message sender=%s tick=%s message=%s", sender, tick, message_text.strip())
 
     if len(pending_agent_messages) > config.AGENT_MESSAGE_HISTORY_LIMIT:
         del pending_agent_messages[:-config.AGENT_MESSAGE_HISTORY_LIMIT]
 
 
 def _send_llm_response(
-    llm_response: dict[str, list[dict[str, Any]]],
+    llm_response: dict[str, Any],
     state: State,
     self_public_key: str,
 ) -> None:
@@ -120,8 +147,10 @@ def _send_llm_response(
         wait_action = _default_wait_action(state.get_valid_actions())
         if wait_action is not None:
             actions = [wait_action]
+            logger.info("using fallback wait action tick=%s", state.tick)
 
     tick = state.tick
+    logger.info("accepted actions tick=%s actions=%s", tick, actions)
     for action in actions:
         _send_agent_action(action, tick)
 
@@ -145,7 +174,7 @@ def _filter_actions(
         action = _wire_action(raw_action)
         signature = _action_signature(action) if action is not None else None
         if action is None or signature not in valid_signatures:
-            print(f"Skipping invalid LLM action: {raw_action}")
+            logger.warning("skipping invalid LLM action raw_action=%s", raw_action)
             continue
         selected_actions.append(action)
 
@@ -161,7 +190,7 @@ def _filter_agent_messages(
         recipient = raw_message.get("recipient")
         content = raw_message.get("content")
         if not isinstance(recipient, str) or recipient not in talk_recipients:
-            print(f"Skipping agent message without matching talk_to action: {raw_message}")
+            logger.warning("skipping agent message without matching talk_to action raw_message=%s", raw_message)
             continue
         if not isinstance(content, str) or not content.strip():
             continue
@@ -184,6 +213,7 @@ def _send_agent_action(action: dict[str, Any], tick: int) -> None:
         },
     }
     axl.send(message, config.SERVER_PUBLIC_KEY)
+    logger.info("sent AGENT_ACTION tick=%s action=%s server=%s", tick, action, config.SERVER_PUBLIC_KEY)
 
 
 def _send_agent_message(recipient: str, content: str, tick: int, self_public_key: str) -> None:
@@ -197,6 +227,7 @@ def _send_agent_message(recipient: str, content: str, tick: int, self_public_key
         },
     }
     axl.send(message, recipient)
+    logger.info("sent AGENT_MSG tick=%s recipient=%s message=%s", tick, recipient, content)
 
 
 def _wire_action(raw_action: dict[str, Any]) -> dict[str, Any] | None:

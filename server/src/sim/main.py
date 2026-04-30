@@ -3,6 +3,10 @@ from .map import Map
 from .agent import Agent
 from .sim import Simulation
 from uuid import uuid4
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 sim_executor = ThreadPoolExecutor()
 
@@ -13,7 +17,7 @@ def sim_done(future):
 
     ex = future.exception()
     if ex is not None:
-        print(f"Simulation crashed: {ex}")
+        logger.error("simulation crashed", exc_info=(type(ex), ex, ex.__traceback__))
 
 
 def setup(agent_public_keys, seed):
@@ -26,7 +30,8 @@ def setup(agent_public_keys, seed):
 def create_simulation(agent_public_keys, seed):
     # generate map
     map = Map(seed)
-    map.print_base_grid()
+    logger.info("creating simulation seed=%s agents=%s", seed, agent_public_keys)
+    logger.info("initial resources\n%s", map.render_resources())
 
     # create agents
     agents = []
@@ -36,9 +41,10 @@ def create_simulation(agent_public_keys, seed):
 
     # spawn agents
     map.add_agents(agents)
-    map.print()
+    logger.info("initial map\n%s", map.render())
 
     # run sim
     sim_id = uuid4().hex
     sim = Simulation(sim_id, map, agents, seed)
+    logger.info("simulation created sim_id=%s seed=%s", sim_id, seed)
     return sim

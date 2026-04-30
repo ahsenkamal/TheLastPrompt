@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from typing import Any
 from urllib import error, request
 
 from . import config
+
+
+logger = logging.getLogger(__name__)
 
 
 ACTION_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -79,20 +84,48 @@ Do not include explanations, markdown, or keys outside the schema.
 """
 
 
-def get_llm_response(prompt: str) -> dict[str, list[dict[str, Any]]]:
+def get_llm_response(prompt: str) -> dict[str, Any]:
     try:
         payload = _create_chat_payload(prompt)
         base_url = config.OLLAMA_BASE_URL.rstrip("/")
+        logger.info(
+            "ollama request model=%s base_url=%s think=%s options=%s prompt_chars=%s",
+            config.OLLAMA_MODEL,
+            base_url,
+            config.OLLAMA_THINK,
+            payload["options"],
+            len(prompt),
+        )
+        logger.debug("ollama prompt\n%s", prompt)
+
+        start_time = time.monotonic()
         response = _post_json(f"{base_url}/api/chat", payload)
+        elapsed = time.monotonic() - start_time
         content = _extract_chat_content(response)
+        reasoning = _extract_chat_reasoning(response)
         parsed = _parse_json_content(content)
-        return normalize_llm_response(parsed)
+        normalized = normalize_llm_response(parsed)
+        normalized["reasoning"] = reasoning
+        logger.info(
+            "ollama response elapsed=%.2fs model=%s actions=%s messages=%s reasoning_chars=%s",
+            elapsed,
+            response.get("model"),
+            normalized["actions"],
+            normalized["messages"],
+            len(reasoning),
+        )
+        if reasoning:
+            logger.info("ollama reasoning\n%s", reasoning)
+        else:
+            logger.info("ollama reasoning not returned; set OLLAMA_THINK=true/high/medium/low if the model supports it")
+        logger.debug("ollama raw response=%s", response)
+        return normalized
     except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
-        print(f"Ollama request failed, falling back to wait: {exc}")
-        return {"actions": [{"action": "wait"}], "messages": []}
+        logger.warning("ollama request failed, falling back to wait: %s", exc)
+        return {"actions": [{"action": "wait"}], "messages": [], "reasoning": ""}
 
 
-def normalize_llm_response(payload: Any) -> dict[str, list[dict[str, Any]]]:
+def normalize_llm_response(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("LLM response must be an object")
 
@@ -161,6 +194,22 @@ def _extract_chat_content(response: dict[str, Any]) -> str:
     if isinstance(message, dict) and isinstance(message.get("content"), str):
         return message["content"]
     raise ValueError("Ollama response missing message.content")
+
+
+def _extract_chat_reasoning(response: dict[str, Any]) -> str:
+    message = response.get("message")
+    if isinstance(message, dict):
+        for key in ("thinking", "reasoning"):
+            value = message.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    for key in ("thinking", "reasoning"):
+        value = response.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    return ""
 
 
 def _parse_json_content(content: str) -> Any:
