@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-from .llm import get_llm_response
+from .llm import get_chat_response, get_llm_response
 from .state import State
 from common.logging_config import demo_log
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 def client_loop(self_public_key: str):
     state: State | None = None
     pending_agent_messages: list[dict[str, Any]] = []
+    direct_chat_budget_by_tick: dict[int, float] = {}
     server_sender = config.SERVER_PEER_ID or config.SERVER_PUBLIC_KEY
     logger.info(
         "using server id=%s axl_match_prefix=%s",
@@ -48,7 +49,14 @@ def client_loop(self_public_key: str):
         message_type = msg.get("message_type")
         logger.info("received message sender=%s type=%s", sender, message_type)
         if message_type == config.MESSAGE_TYPE_AGENT_MSG:
-            _queue_agent_message(pending_agent_messages, sender, msg)
+            agent_message = _queue_agent_message(pending_agent_messages, sender, msg)
+            if agent_message is not None and state is not None:
+                _try_direct_chat_reply(
+                    agent_message,
+                    state,
+                    self_public_key,
+                    direct_chat_budget_by_tick,
+                )
             continue
 
         if message_type != config.MESSAGE_TYPE_STATE_UPDATE:
@@ -83,6 +91,7 @@ def client_loop(self_public_key: str):
         else:
             state.update(received_state)
         state.set_agent_messages(pending_agent_messages)
+        _prune_direct_chat_budget(direct_chat_budget_by_tick, state.tick)
         logger.info(
             "state update sim_id=%s tick=%s agent=%s valid_actions=%s incoming_agent_messages=%s",
             received_state.get("sim_id"),
@@ -147,7 +156,7 @@ def _queue_agent_message(
     pending_agent_messages: list[dict[str, Any]],
     sender: str,
     msg: dict[str, Any],
-) -> None:
+) -> dict[str, Any] | None:
     content = msg.get("content", {})
     if isinstance(content, dict):
         message_text = content.get("message") or content.get("content") or ""
@@ -157,19 +166,20 @@ def _queue_agent_message(
         tick = None
 
     if not isinstance(message_text, str) or not message_text.strip():
-        return
+        return None
 
-    pending_agent_messages.append(
-        {
-            "from": _agent_message_sender(sender, content),
-            "tick": tick,
-            "message": message_text.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
-        }
-    )
+    agent_message = {
+        "from": _agent_message_sender(sender, content),
+        "tick": tick,
+        "message": message_text.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
+    }
+    pending_agent_messages.append(agent_message)
     logger.info("queued incoming agent message sender=%s tick=%s message=%s", sender, tick, message_text.strip())
 
     if len(pending_agent_messages) > config.AGENT_MESSAGE_HISTORY_LIMIT:
         del pending_agent_messages[:-config.AGENT_MESSAGE_HISTORY_LIMIT]
+
+    return agent_message
 
 
 def _agent_message_sender(transport_sender: str, content: object) -> str:
@@ -279,16 +289,19 @@ def _filter_agent_messages(
     return selected_messages
 
 
-def _send_agent_action(action: dict[str, Any], tick: int, self_public_key: str) -> None:
+def _send_agent_action(action: dict[str, Any], tick: int | None, self_public_key: str) -> None:
+    content = {
+        "sender_public_key": self_public_key,
+        "action": action,
+    }
+    if tick is not None:
+        content["tick"] = tick
+
     message = {
         "protocol_version": config.PROTOCOL_VERSION,
         "message_type": config.MESSAGE_TYPE_AGENT_ACTION,
         "sender_public_key": self_public_key,
-        "content": {
-            "tick": tick,
-            "sender_public_key": self_public_key,
-            "action": action,
-        },
+        "content": content,
     }
     axl.send(message, config.SERVER_PUBLIC_KEY)
     logger.info("sent AGENT_ACTION tick=%s action=%s server=%s", tick, action, config.SERVER_PUBLIC_KEY)
@@ -342,6 +355,118 @@ def _talk_recipients(actions: list[dict[str, Any]]) -> set[str]:
         elif isinstance(target, dict) and isinstance(target.get("public_key"), str):
             recipients.add(target["public_key"])
     return recipients
+
+
+def _try_direct_chat_reply(
+    agent_message: dict[str, Any],
+    state: State,
+    self_public_key: str,
+    direct_chat_budget_by_tick: dict[int, float],
+) -> None:
+    if not config.DIRECT_AGENT_CHAT:
+        return
+
+    recipient = agent_message.get("from")
+    if not isinstance(recipient, str) or not recipient:
+        return
+
+    talk_budget = _talk_to_budget(state)
+    if talk_budget is None:
+        logger.info("skip direct chat reply; talk_to is not currently valid")
+        return
+
+    if not _is_visible_agent(state, recipient):
+        logger.info("skip direct chat reply; sender is not visible")
+        return
+
+    tick = state.tick
+    spent = direct_chat_budget_by_tick.get(tick, 0.0)
+    if spent + talk_budget > _agent_action_budget(state):
+        demo_log(logger, "Chat budget spent for tick %s", tick)
+        return
+
+    if config.MAX_DIRECT_CHAT_REPLIES_PER_TICK <= spent / max(talk_budget, 0.0001):
+        demo_log(logger, "Chat reply limit reached for tick %s", tick)
+        return
+
+    sender_label = _agent_label_from_public_key(state, recipient)
+    demo_log(
+        logger,
+        "%s: %s",
+        sender_label,
+        _one_line(str(agent_message.get("message", "")), 240),
+    )
+    chat_response = get_chat_response(_direct_chat_prompt(state, agent_message))
+    reasoning = chat_response.get("reasoning", "")
+    if reasoning:
+        demo_log(logger, "Chat reasoning: %s", _one_line(reasoning, 360))
+
+    reply = chat_response.get("content", "").strip()
+    if not reply:
+        return
+
+    _send_agent_action({"action": "talk_to", "target": recipient}, None, self_public_key)
+    direct_chat_budget_by_tick[tick] = spent + talk_budget
+    demo_log(logger, "You -> %s: %s", sender_label, _one_line(reply, 240))
+    _send_agent_message(recipient, reply, tick, self_public_key)
+
+
+def _direct_chat_prompt(state: State, agent_message: dict[str, Any]) -> str:
+    agent = _agent_state(state)
+    sender = agent_message.get("from")
+    sender_label = _agent_label_from_public_key(state, sender)
+    return "\n".join(
+        [
+            f"Tick: {state.tick}",
+            f"Temperature: {_number(state.sim_state.get('temp'))}C",
+            (
+                f"You: {_agent_label(agent)} at {_position_text(agent.get('position'))}; "
+                f"health={_number(agent.get('health'))}, "
+                f"hunger={_number(agent.get('hunger'))}, "
+                f"thirst={_number(agent.get('thirst'))}, "
+                f"warmth={_number(agent.get('warmth'))}"
+            ),
+            f"Inventory: {_inventory_text(agent.get('inventory'))}",
+            "Visible map:",
+            _render_visible_map(state),
+            f"Visible agents: {_visible_agents_text(state)}",
+            f"Incoming from {sender_label}: {_one_line(str(agent_message.get('message', '')), config.MAX_AGENT_MESSAGE_CHARS)}",
+            f"Reply to {sender_label}.",
+        ]
+    )
+
+
+def _talk_to_budget(state: State) -> float | None:
+    for action in state.get_valid_actions():
+        if action.get("action") == "talk_to":
+            try:
+                return float(action.get("budget", config.CHAT_ACTION_BUDGET))
+            except (TypeError, ValueError):
+                return config.CHAT_ACTION_BUDGET
+    return None
+
+
+def _agent_action_budget(state: State) -> float:
+    try:
+        return float(_agent_state(state).get("action_budget", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def _is_visible_agent(state: State, public_key: str) -> bool:
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if isinstance(occupant, dict) and occupant.get("public_key") == public_key and occupant.get("alive", True):
+                return True
+    return False
+
+
+def _prune_direct_chat_budget(direct_chat_budget_by_tick: dict[int, float], current_tick: int) -> None:
+    for tick in list(direct_chat_budget_by_tick):
+        if tick < current_tick:
+            del direct_chat_budget_by_tick[tick]
 
 
 def _demo_state_block(state: State) -> str:
@@ -506,6 +631,28 @@ def _agent_label_from_public_key(state: State, public_key: Any) -> str:
             if isinstance(occupant, dict) and occupant.get("public_key") == public_key:
                 return _agent_label(occupant)
     return "A?"
+
+
+def _visible_agents_text(state: State) -> str:
+    self_id = _agent_state(state).get("id")
+    seen: dict[Any, str] = {}
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if not isinstance(occupant, dict) or not occupant.get("alive", True):
+                continue
+            if occupant.get("id") == self_id:
+                continue
+            label = _agent_label(occupant)
+            seen[occupant.get("id", label)] = f"{label} at {_position_text(occupant.get('position'))}"
+    return ", ".join(seen.values()) if seen else "none"
+
+
+def _inventory_text(inventory: Any) -> str:
+    if not isinstance(inventory, dict) or not inventory:
+        return "empty"
+    return ", ".join(f"{item}={amount}" for item, amount in inventory.items())
 
 
 def _target_text(target: Any) -> str:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from typing import Any
 from urllib import error, request
@@ -85,6 +86,15 @@ Do not include explanations, markdown, or keys outside the schema.
 """
 
 
+DIRECT_CHAT_SYSTEM_PROMPT = """
+You are replying to another agent in a survival simulation.
+Use the current state context and the incoming message.
+Write only the chat message text to send back.
+Do not write JSON, markdown, labels, quotes, or explanations.
+Keep it short, practical, and in character.
+"""
+
+
 def get_llm_response(prompt: str) -> dict[str, Any]:
     try:
         payload = _create_chat_payload(prompt)
@@ -107,7 +117,12 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
         logger.debug("ollama prompt\n%s", prompt)
 
         start_time = time.monotonic()
-        response = _post_json(f"{base_url}/api/chat", payload)
+        response = _post_json(
+            f"{base_url}/api/chat",
+            payload,
+            stream_label="LLM",
+            display_content=config.OLLAMA_STREAM_JSON_LOG,
+        )
         elapsed = time.monotonic() - start_time
         content = _extract_chat_content(response)
         reasoning = _extract_chat_reasoning(response)
@@ -132,6 +147,53 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
     except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
         logger.warning("ollama request failed, falling back to wait: %s", exc)
         return {"actions": [{"action": "wait"}], "messages": [], "reasoning": ""}
+
+
+def get_chat_response(prompt: str) -> dict[str, str]:
+    try:
+        payload = _create_direct_chat_payload(prompt)
+        base_url = config.OLLAMA_BASE_URL.rstrip("/")
+        estimated_prompt_tokens = _estimate_tokens(prompt)
+        estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_CHAT_RESPONSE_TOKENS
+        logger.info(
+            "ollama chat request model=%s base_url=%s think=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
+            config.OLLAMA_MODEL,
+            base_url,
+            config.OLLAMA_CHAT_THINK,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_CHAT_RESPONSE_TOKENS,
+            config.OLLAMA_CONTEXT_LENGTH,
+            estimated_total_tokens,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
+        logger.debug("ollama chat prompt\n%s", prompt)
+
+        start_time = time.monotonic()
+        response = _post_json(
+            f"{base_url}/api/chat",
+            payload,
+            stream_label="Chat",
+            display_content=True,
+        )
+        elapsed = time.monotonic() - start_time
+        content = _normalize_chat_content(_extract_chat_content(response))
+        reasoning = _extract_chat_reasoning(response)
+        logger.info(
+            "ollama chat response elapsed=%.2fs model=%s reply_chars=%s reasoning_chars=%s usage=%s",
+            elapsed,
+            response.get("model"),
+            len(content),
+            len(reasoning),
+            _usage_summary(response),
+        )
+        if reasoning:
+            logger.info("ollama chat reasoning\n%s", reasoning)
+        logger.debug("ollama chat raw response=%s", response)
+        return {"content": content[: config.MAX_AGENT_MESSAGE_CHARS], "reasoning": reasoning}
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
+        logger.warning("ollama chat request failed, not replying: %s", exc)
+        return {"content": "", "reasoning": ""}
 
 
 def normalize_llm_response(payload: Any) -> dict[str, Any]:
@@ -176,7 +238,7 @@ def _create_chat_payload(prompt: str) -> dict[str, Any]:
                 "content": f"{prompt}\n\nReturn JSON matching this schema:\n{schema}",
             },
         ],
-        "stream": False,
+        "stream": config.OLLAMA_STREAM,
         "format": ACTION_RESPONSE_SCHEMA,
         "think": config.OLLAMA_THINK,
         "keep_alive": config.OLLAMA_KEEP_ALIVE,
@@ -184,7 +246,39 @@ def _create_chat_payload(prompt: str) -> dict[str, Any]:
     }
 
 
-def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _create_direct_chat_payload(prompt: str) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "num_ctx": config.OLLAMA_CONTEXT_LENGTH,
+        "num_predict": config.OLLAMA_CHAT_RESPONSE_TOKENS,
+        "temperature": config.OLLAMA_TEMPERATURE,
+        "top_p": config.OLLAMA_TOP_P,
+        "top_k": config.OLLAMA_TOP_K,
+        "repeat_penalty": config.OLLAMA_REPEAT_PENALTY,
+    }
+
+    if config.OLLAMA_SEED:
+        options["seed"] = int(config.OLLAMA_SEED)
+
+    return {
+        "model": config.OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": DIRECT_CHAT_SYSTEM_PROMPT.strip()},
+            {"role": "user", "content": prompt},
+        ],
+        "stream": config.OLLAMA_STREAM,
+        "think": config.OLLAMA_CHAT_THINK,
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
+        "options": options,
+    }
+
+
+def _post_json(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    stream_label: str,
+    display_content: bool,
+) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
     req = request.Request(
         url,
@@ -194,8 +288,74 @@ def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     with request.urlopen(req, timeout=config.OLLAMA_TIMEOUT_SECONDS) as resp:
+        if payload.get("stream"):
+            return _read_streaming_response(resp, stream_label, display_content)
         response_body = resp.read().decode("utf-8")
     return json.loads(response_body)
+
+
+def _read_streaming_response(resp: Any, stream_label: str, display_content: bool) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    content_parts: list[str] = []
+    thinking_parts: list[str] = []
+    stream_state: dict[str, str | bool] = {}
+
+    for raw_line in resp:
+        line = raw_line.decode("utf-8").strip()
+        if not line:
+            continue
+
+        event = json.loads(line)
+        if isinstance(event, dict):
+            result.update({key: value for key, value in event.items() if key != "message"})
+
+        message = event.get("message") if isinstance(event, dict) else None
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                content_parts.append(content)
+                if display_content:
+                    _write_stream_chunk(stream_label, content, stream_state)
+
+            for key in ("thinking", "reasoning"):
+                thinking = message.get(key)
+                if isinstance(thinking, str) and thinking:
+                    thinking_parts.append(thinking)
+                    _write_stream_chunk("Thinking", thinking, stream_state)
+
+        for key in ("thinking", "reasoning"):
+            thinking = event.get(key) if isinstance(event, dict) else None
+            if isinstance(thinking, str) and thinking:
+                thinking_parts.append(thinking)
+                _write_stream_chunk("Thinking", thinking, stream_state)
+
+    _finish_stream(stream_state)
+
+    result["message"] = {"content": "".join(content_parts)}
+    if thinking_parts:
+        result["message"]["thinking"] = "".join(thinking_parts)
+    return result
+
+
+def _write_stream_chunk(label: str, chunk: str, stream_state: dict[str, str | bool]) -> None:
+    if not config.OLLAMA_STREAM_LOG or not chunk:
+        return
+
+    if stream_state.get("label") != label:
+        if stream_state.get("open"):
+            sys.stdout.write("\n")
+        sys.stdout.write(f"{time.strftime('%H:%M:%S')} {label}: ")
+        stream_state["label"] = label
+        stream_state["open"] = True
+
+    sys.stdout.write(chunk)
+    sys.stdout.flush()
+
+
+def _finish_stream(stream_state: dict[str, str | bool]) -> None:
+    if stream_state.get("open"):
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
 def _extract_chat_content(response: dict[str, Any]) -> str:
@@ -267,6 +427,15 @@ def _parse_json_content(content: str) -> Any:
         if start == -1 or end == -1 or end <= start:
             raise
         return json.loads(content[start : end + 1])
+
+
+def _normalize_chat_content(content: str) -> str:
+    normalized = content.strip()
+    if normalized.startswith(("```", "~~~")):
+        normalized = normalized.strip("`~").strip()
+    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {"'", '"'}:
+        normalized = normalized[1:-1].strip()
+    return " ".join(normalized.split())
 
 
 def _normalize_action(raw_action: Any) -> dict[str, Any] | None:
