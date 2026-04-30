@@ -37,9 +37,12 @@ def client_loop():
         else:
             state.update(received_state)
 
-        # create prompt for user and get response
+        # create prompt for user
         final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + state.get_state_description()
         print(final_prompt)
+
+        # get llm response
+        get_llm_response(final_prompt)
 
         # send response to server
         pass
