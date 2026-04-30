@@ -4,6 +4,7 @@ class State:
         self.sim_instances = []
         self.sim_size = sim_size
         self.self_public_key = self_public_key
+        self.seed = 0
 
     def add_to_queue(self, agent_public_key):
         self.matchmaking_queue.append(agent_public_key)
@@ -14,4 +15,5 @@ class State:
     def pick_new_sim_agents(self):
         agents = self.matchmaking_queue[:self.sim_size]
         self.matchmaking_queue = self.matchmaking_queue[self.sim_size:]
-        return agents
+        self.seed = (self.seed + 1) % (2**32)
+        return (agents, self.seed)

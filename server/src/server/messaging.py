@@ -11,8 +11,8 @@ async def handle_message(sender, msg, state: State):
         state.add_to_queue(sender)
         if state.queue_ready():
             print("Matchmaking queue is ready, creating new game instance")
-            agents = state.pick_new_sim_agents()
-            state.sim_instances.append(sim.setup(agents, MAP_SIZE))
+            agents, seed = state.pick_new_sim_agents()
+            state.sim_instances.append(sim.setup(agents, seed))
 
 
 async def recv_loop(state: State):
