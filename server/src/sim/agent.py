@@ -32,10 +32,22 @@ class Agent:
         self.actions: dict[int, list[Action]] = {}
         self.actions_lock = Lock()
         self.visible_tiles: list[tuple[int, int]] = []
+        self.death_tick: int | None = None
+        self.death_cause: str | None = None
+        self.killed_by: int | None = None
         # self.memory
 
     def die(self):
         self.alive = False
+        self.health = 0
+        self.action_budget = 0
+
+    def clamp_metrics(self):
+        self.health = _clamp(self.health)
+        self.hunger = _clamp(self.hunger)
+        self.thirst = _clamp(self.thirst)
+        self.mental_health = _clamp(self.mental_health)
+        self.warmth = _clamp(self.warmth)
 
     def queue_action(self, iteration: int, action: Action):
         with self.actions_lock:
@@ -52,3 +64,7 @@ class Agent:
             for y in range(max(0, self.pos_y - radius), min(MAP_SIZE, self.pos_y + radius + 1))
             for x in range(max(0, self.pos_x - radius), min(MAP_SIZE, self.pos_x + radius + 1))
         ]
+
+
+def _clamp(value: float, minimum: float = 0, maximum: float = 100) -> float:
+    return max(minimum, min(maximum, value))

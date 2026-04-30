@@ -71,6 +71,23 @@ def handle_agent_action(sender: str, msg: dict, state: State):
         return
 
     sim_instance, agent = sim_and_agent
+    if getattr(sim_instance, "game_over", False):
+        logger.info(
+            "discard AGENT_ACTION for ended sim sim_id=%s sender=%s agent=%s",
+            sim_instance.id,
+            agent_public_key,
+            agent.id,
+        )
+        return
+    if not agent.alive:
+        logger.info(
+            "discard AGENT_ACTION from dead agent sim_id=%s sender=%s agent=%s",
+            sim_instance.id,
+            agent_public_key,
+            agent.id,
+        )
+        return
+
     content = msg.get("content", msg)
 
     try:

@@ -9,6 +9,7 @@ from .agent import Agent
 from .action import Action, ActionType, execute_action, valid_action
 from .coordinator import send_states_to_agents
 from common.logging_config import color_delta, demo_log
+from server.config import SIM_MAX_TICKS
 
 
 logger = logging.getLogger(__name__)
@@ -23,15 +24,28 @@ class Simulation:
         self.seed = seed
         self.rng = random.Random(seed)
         self.future = None
+        self.max_ticks = SIM_MAX_TICKS
+        self.game_over = False
+        self.end_reason: str | None = None
+        self.ended_tick: int | None = None
+        self.action_counts: dict[int, dict[str, int]] = {agent.id: {} for agent in agents}
+        self.kill_log: list[dict[str, Any]] = []
+        self.death_log: list[dict[str, Any]] = []
         self._demo_previous_agents: dict[int, dict[str, Any]] = {}
         self._demo_previous_temp: float | None = None
 
     def run(self):
-        for i in range(100):
+        while not self.game_over and self.iteration < self.max_ticks:
             self.tick()
+            if self.game_over:
+                break
             self.iteration += 1
 
     def tick(self):
+        if self.game_over:
+            return
+
+        self._sync_agent_metrics()
         self._log_demo_tick_start()
         logger.info(
             "tick start sim_id=%s tick=%s temp=%.2f agents=%s",
@@ -56,7 +70,11 @@ class Simulation:
             self.process_actions(agent)
             self.base_effects(agent)
 
-        self.setup_next_iteration()
+        self._finish_if_terminal()
+        if not self.game_over:
+            self.setup_next_iteration()
+            self._finish_if_max_ticks()
+
         logger.info(
             "tick end sim_id=%s tick=%s temp=%.2f agents=%s",
             self.id,
@@ -64,6 +82,11 @@ class Simulation:
             self.temp,
             [_agent_snapshot(agent) for agent in self.agents],
         )
+
+        if self.game_over:
+            logger.info("simulation ended sim_id=%s tick=%s reason=%s results=%s", self.id, self.iteration, self.end_reason, self.results())
+            demo_log(logger, self.results_text())
+            send_states_to_agents(self)
 
     def _log_demo_tick_start(self):
         temp = color_delta(self.temp, self._demo_previous_temp)
@@ -84,10 +107,182 @@ class Simulation:
         }
 
 
+    def record_action(self, agent: Agent, action: Action):
+        counts = self.action_counts.setdefault(agent.id, {})
+        counts[action.action_type.value] = counts.get(action.action_type.value, 0) + 1
+
+    def kill_agent(self, agent: Agent, cause: str, killer: Agent | None = None):
+        if not agent.alive:
+            return
+
+        agent.death_tick = self.iteration
+        agent.death_cause = cause
+        agent.killed_by = killer.id if killer is not None else None
+        agent.die()
+        agent.clamp_metrics()
+        self._remove_agent_from_map(agent)
+
+        death_event = {
+            "tick": self.iteration,
+            "agent_id": agent.id,
+            "cause": cause,
+            "killed_by": killer.id if killer is not None else None,
+        }
+        self.death_log.append(death_event)
+
+        if killer is not None and killer is not agent:
+            kill_event = {
+                "tick": self.iteration,
+                "killer_id": killer.id,
+                "victim_id": agent.id,
+                "cause": cause,
+            }
+            self.kill_log.append(kill_event)
+            demo_log(logger, "%s killed %s", _agent_label(killer), _agent_label(agent))
+        else:
+            demo_log(logger, "%s died (%s)", _agent_label(agent), cause)
+
+    def enforce_agent_bounds(self, agent: Agent, cause: str = "health_depleted"):
+        if not agent.alive:
+            agent.clamp_metrics()
+            return
+
+        death_cause = None
+        if agent.health <= 0 or agent.warmth <= 0:
+            death_cause = _death_cause(agent) or cause
+        agent.clamp_metrics()
+        if death_cause is not None:
+            self.kill_agent(agent, death_cause)
+        elif agent.alive:
+            _update_action_budget(agent)
+
+    def results(self) -> dict[str, Any]:
+        scoreboard = self.scoreboard()
+        winners = _winner_ids(scoreboard, self.end_reason)
+        return {
+            "game_over": self.game_over,
+            "sim_id": self.id,
+            "ended_tick": self.ended_tick,
+            "end_reason": self.end_reason,
+            "winners": winners,
+            "leaderboard": scoreboard,
+            "deaths": list(self.death_log),
+            "kills": list(self.kill_log),
+            "action_counts": {
+                str(agent_id): dict(counts)
+                for agent_id, counts in self.action_counts.items()
+            },
+        }
+
+    def scoreboard(self) -> list[dict[str, Any]]:
+        ended_tick = self.ended_tick if self.ended_tick is not None else self.iteration
+        rows = []
+        kill_counts = _kill_counts(self.kill_log)
+        for agent in self.agents:
+            survived_ticks = agent.death_tick if agent.death_tick is not None else ended_tick + 1
+            action_counts = self.action_counts.get(agent.id, {})
+            rows.append(
+                {
+                    "agent_id": agent.id,
+                    "public_key": agent.public_key,
+                    "alive": agent.alive,
+                    "survived_ticks": survived_ticks,
+                    "kills": kill_counts.get(agent.id, 0),
+                    "actions": sum(action_counts.values()),
+                    "action_counts": dict(action_counts),
+                    "death_tick": agent.death_tick,
+                    "death_cause": agent.death_cause,
+                    "killed_by": agent.killed_by,
+                }
+            )
+
+        rows.sort(
+            key=lambda row: (
+                row["survived_ticks"],
+                1 if row["alive"] else 0,
+                row["kills"],
+                row["actions"],
+            ),
+            reverse=True,
+        )
+        for rank, row in enumerate(rows, start=1):
+            row["rank"] = rank
+        return rows
+
+    def results_text(self) -> str:
+        results = self.results()
+        lines = [
+            f"Results | tick {results['ended_tick']} | {results['end_reason']}",
+            "Leaderboard:",
+        ]
+        for row in results["leaderboard"]:
+            status = "alive" if row["alive"] else f"dead:{row['death_cause']}"
+            lines.append(
+                f"#{row['rank']} A{row['agent_id']} {status} "
+                f"survived={row['survived_ticks']} kills={row['kills']} actions={row['actions']}"
+            )
+
+        if results["kills"]:
+            lines.append("Kills:")
+            for kill in results["kills"]:
+                lines.append(
+                    f"tick {kill['tick']}: A{kill['killer_id']} killed A{kill['victim_id']} ({kill['cause']})"
+                )
+
+        if results["deaths"]:
+            lines.append("Deaths:")
+            for death in results["deaths"]:
+                killer = "" if death["killed_by"] is None else f" by A{death['killed_by']}"
+                lines.append(f"tick {death['tick']}: A{death['agent_id']} died{killer} ({death['cause']})")
+
+        lines.append("Actions:")
+        for row in sorted(results["leaderboard"], key=lambda item: item["agent_id"]):
+            counts = row["action_counts"]
+            count_text = ", ".join(f"{name}={count}" for name, count in sorted(counts.items())) or "none"
+            lines.append(f"A{row['agent_id']}: {count_text}")
+        return "\n".join(lines)
+
+    def _finish_if_terminal(self):
+        alive_agents = [agent for agent in self.agents if agent.alive]
+        if len(self.agents) > 1 and len(alive_agents) <= 1:
+            reason = "last_agent_standing" if alive_agents else "all_agents_dead"
+            self._end(reason)
+
+    def _finish_if_max_ticks(self):
+        if self.iteration + 1 >= self.max_ticks:
+            self._end("max_ticks_reached")
+
+    def _end(self, reason: str):
+        if self.game_over:
+            return
+        self._sync_agent_metrics()
+        self.game_over = True
+        self.end_reason = reason
+        self.ended_tick = self.iteration
+        for agent in self.agents:
+            if agent.alive:
+                _update_action_budget(agent)
+
+    def _sync_agent_metrics(self):
+        for agent in self.agents:
+            agent.clamp_metrics()
+            if agent.alive:
+                _update_action_budget(agent)
+
+    def _remove_agent_from_map(self, agent: Agent):
+        for row in self.map.grid:
+            for tile in row:
+                if agent in tile.occupants:
+                    tile.occupants.remove(agent)
+
+
     def pre_action_effects(self, agent: Agent):
         pass
 
     def process_actions(self, agent: Agent):
+        if not agent.alive:
+            return
+
         actions = agent.pop_actions(self.iteration)
         remaining_budget = agent.action_budget
         executed_action = False
@@ -147,6 +342,11 @@ class Simulation:
             execute_action(self, agent, action)
             remaining_budget -= action.budget
             executed_action = True
+            self.record_action(agent, action)
+            self.enforce_agent_bounds(agent)
+            for other_agent in self.agents:
+                if other_agent is not agent:
+                    self.enforce_agent_bounds(other_agent)
             demo_log(logger, _demo_action_line(self, agent, action))
             logger.info(
                 "action result sim_id=%s tick=%s agent=%s before=%s after=%s remaining_budget=%.2f",
@@ -184,8 +384,8 @@ class Simulation:
         in_own_shelter = agent.public_key in getattr(current_tile, "shelters", {})
 
         # hunger and thirst increase
-        agent.hunger += 10
-        agent.thirst += 10
+        agent.hunger = min(100, agent.hunger + 10)
+        agent.thirst = min(100, agent.thirst + 10)
 
         # health decrease if hunger or thirst is too high
         if agent.hunger > 70:
@@ -215,9 +415,7 @@ class Simulation:
         if agent.warmth < 30:
             agent.health -= (30 - agent.warmth) * 0.5
         
-        # check if agent is dead
-        if agent.health <= 0 or agent.warmth <= 0:
-            agent.die()
+        self.enforce_agent_bounds(agent, _death_cause(agent) or "health_depleted")
 
         logger.info(
             "base effects sim_id=%s tick=%s agent=%s in_own_shelter=%s before=%s after=%s",
@@ -278,6 +476,9 @@ def _agent_snapshot(agent: Agent) -> dict[str, Any]:
             for resource, amount in agent.inventory.items()
             if amount > 0
         },
+        "death_tick": agent.death_tick,
+        "death_cause": agent.death_cause,
+        "killed_by": agent.killed_by,
     }
 
 
@@ -293,9 +494,10 @@ def _demo_agent_stats(agent: Agent, previous: dict[str, Any] | None) -> str:
     hunger = color_delta(agent.hunger, previous.get("hunger"), lower_is_better=True)
     thirst = color_delta(agent.thirst, previous.get("thirst"), lower_is_better=True)
     warmth = color_delta(agent.warmth, previous.get("warmth"))
+    status = "" if agent.alive else f" dead:{agent.death_cause}"
     return (
         f"{_agent_label(agent)} pos=({agent.pos_x},{agent.pos_y}) "
-        f"hp={health} hunger={hunger} thirst={thirst} warmth={warmth}"
+        f"hp={health} hunger={hunger} thirst={thirst} warmth={warmth}{status}"
     )
 
 
@@ -398,3 +600,65 @@ def _agent_label(agent: Agent | None) -> str:
     if agent is None:
         return "A?"
     return f"A{agent.id}"
+
+
+def _death_cause(agent: Agent) -> str | None:
+    if agent.warmth <= 0:
+        return "exposure"
+    if agent.health > 0:
+        return None
+    if agent.thirst >= 100:
+        return "dehydration"
+    if agent.hunger >= 100:
+        return "starvation"
+    if agent.warmth < 30:
+        return "exposure"
+    return "health_depleted"
+
+
+def _update_action_budget(agent: Agent):
+    if not agent.alive:
+        agent.action_budget = 0
+    elif agent.mental_health < 20:
+        agent.action_budget = 0.5
+    elif agent.mental_health < 70:
+        agent.action_budget = 0.8
+    else:
+        agent.action_budget = 1.0
+
+
+def _kill_counts(kill_log: list[dict[str, Any]]) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    for kill in kill_log:
+        killer_id = kill.get("killer_id")
+        if isinstance(killer_id, int):
+            counts[killer_id] = counts.get(killer_id, 0) + 1
+    return counts
+
+
+def _winner_ids(scoreboard: list[dict[str, Any]], end_reason: str | None) -> list[int]:
+    if not scoreboard:
+        return []
+    if end_reason == "all_agents_dead":
+        return []
+    if end_reason == "last_agent_standing":
+        return [
+            row["agent_id"]
+            for row in scoreboard
+            if row.get("alive")
+        ]
+
+    best = scoreboard[0]
+    return [
+        row["agent_id"]
+        for row in scoreboard
+        if (
+            row["survived_ticks"],
+            row["kills"],
+            row["actions"],
+        ) == (
+            best["survived_ticks"],
+            best["kills"],
+            best["actions"],
+        )
+    ]

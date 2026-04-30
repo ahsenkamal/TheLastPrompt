@@ -42,10 +42,19 @@ def create_state_message(sim: "Simulation", agent: Agent) -> dict[str, Any]:
 
 
 def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
+    agent.clamp_metrics()
+    game_over = bool(getattr(sim, "game_over", False))
     return {
         "sim_id": sim.id,
         "tick": sim.iteration,
         "temp": sim.temp,
+        "sim_status": {
+            "game_over": game_over,
+            "end_reason": getattr(sim, "end_reason", None),
+            "ended_tick": getattr(sim, "ended_tick", None),
+            "alive_count": sum(1 for sim_agent in sim.agents if sim_agent.alive),
+            "max_ticks": getattr(sim, "max_ticks", None),
+        },
         "agent": {
             "id": agent.id,
             "public_key": agent.public_key,
@@ -64,9 +73,14 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
             "status": list(agent.status),
             "action_budget": agent.action_budget,
             "inventory": serialize_inventory(agent.inventory),
+            "death_tick": agent.death_tick,
+            "death_cause": agent.death_cause,
+            "killed_by": agent.killed_by,
         },
         "visible_map": create_visible_map(sim, agent),
-        "valid_actions": create_valid_actions(sim, agent),
+        "valid_actions": [] if game_over or not agent.alive else create_valid_actions(sim, agent),
+        "scoreboard": sim.scoreboard(),
+        "results": sim.results() if game_over or not agent.alive else None,
     }
 
 def create_visible_map(sim: "Simulation", agent: Agent) -> list[dict[str, Any]]:

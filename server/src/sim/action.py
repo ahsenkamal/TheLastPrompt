@@ -653,10 +653,9 @@ def _apply_attack(sim: "Simulation", attacker: "Agent", defender: "Agent") -> No
     defender.mental_health = max(0, defender.mental_health - 5)
 
     if defender.health <= 0:
-        defender.die()
-        tile = sim.map.grid[defender.pos_y][defender.pos_x]
-        if defender in tile.occupants:
-            tile.occupants.remove(defender)
+        sim.kill_agent(defender, "attack", attacker)
+    else:
+        defender.clamp_metrics()
 
 
 def _move_tile_resource_to_inventory(tile: Any, agent: "Agent", resource: ResourceType) -> None:

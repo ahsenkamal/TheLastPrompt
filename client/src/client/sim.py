@@ -102,6 +102,11 @@ def client_loop(self_public_key: str):
         )
         pending_agent_messages = []
         demo_log(logger, _demo_state_block(state))
+        if _is_terminal_for_agent(state):
+            results_block = _results_block(state)
+            logger.info("simulation results\n%s", results_block)
+            demo_log(logger, results_block)
+            return
 
         # create prompt for user
         final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + state.get_state_description()
@@ -365,6 +370,8 @@ def _try_direct_chat_reply(
 ) -> None:
     if not config.DIRECT_AGENT_CHAT:
         return
+    if _is_terminal_for_agent(state):
+        return
 
     recipient = agent_message.get("from")
     if not isinstance(recipient, str) or not recipient:
@@ -469,8 +476,99 @@ def _prune_direct_chat_budget(direct_chat_budget_by_tick: dict[int, float], curr
             del direct_chat_budget_by_tick[tick]
 
 
+def _is_terminal_for_agent(state: State) -> bool:
+    sim_status = state.sim_state.get("sim_status", {})
+    if isinstance(sim_status, dict) and sim_status.get("game_over"):
+        return True
+    return _agent_state(state).get("alive") is False
+
+
+def _results_block(state: State) -> str:
+    agent = _agent_state(state)
+    agent_id = agent.get("id")
+    results = state.sim_state.get("results")
+    sim_status = state.sim_state.get("sim_status", {})
+    if not isinstance(results, dict):
+        results = {
+            "game_over": bool(isinstance(sim_status, dict) and sim_status.get("game_over")),
+            "ended_tick": state.tick,
+            "end_reason": "agent_dead" if agent.get("alive") is False else "finished",
+            "winners": [],
+            "leaderboard": state.sim_state.get("scoreboard", []),
+            "deaths": [],
+            "kills": [],
+            "action_counts": {},
+        }
+
+    winners = results.get("winners", [])
+    if agent.get("alive") is False:
+        headline = "You died"
+    elif agent_id in winners:
+        headline = "You won"
+    elif results.get("game_over"):
+        headline = "Simulation ended"
+    else:
+        headline = "You are out"
+
+    lines = [
+        f"{headline} | tick {results.get('ended_tick', state.tick)} | {results.get('end_reason', '?')}",
+        "Leaderboard:",
+    ]
+
+    leaderboard = results.get("leaderboard", [])
+    if isinstance(leaderboard, list) and leaderboard:
+        for row in leaderboard:
+            if not isinstance(row, dict):
+                continue
+            status = "alive" if row.get("alive") else f"dead:{row.get('death_cause') or '?'}"
+            lines.append(
+                f"#{row.get('rank', '?')} A{row.get('agent_id', '?')} {status} "
+                f"survived={row.get('survived_ticks', '?')} "
+                f"kills={row.get('kills', 0)} actions={row.get('actions', 0)}"
+            )
+    else:
+        lines.append("none")
+
+    kills = results.get("kills", [])
+    if isinstance(kills, list) and kills:
+        lines.append("Kills:")
+        for kill in kills:
+            if not isinstance(kill, dict):
+                continue
+            lines.append(
+                f"tick {kill.get('tick', '?')}: "
+                f"A{kill.get('killer_id', '?')} killed A{kill.get('victim_id', '?')}"
+            )
+
+    deaths = results.get("deaths", [])
+    if isinstance(deaths, list) and deaths:
+        lines.append("Deaths:")
+        for death in deaths:
+            if not isinstance(death, dict):
+                continue
+            killed_by = death.get("killed_by")
+            killer = "" if killed_by is None else f" by A{killed_by}"
+            lines.append(
+                f"tick {death.get('tick', '?')}: "
+                f"A{death.get('agent_id', '?')} died{killer} ({death.get('cause', '?')})"
+            )
+
+    action_counts = results.get("action_counts", {})
+    if isinstance(action_counts, dict) and action_counts:
+        lines.append("Actions:")
+        for agent_key in sorted(action_counts, key=lambda value: int(value) if str(value).isdigit() else str(value)):
+            counts = action_counts.get(agent_key)
+            if not isinstance(counts, dict):
+                continue
+            count_text = ", ".join(f"{name}={count}" for name, count in sorted(counts.items())) or "none"
+            lines.append(f"A{agent_key}: {count_text}")
+
+    return "\n".join(lines)
+
+
 def _demo_state_block(state: State) -> str:
     agent = _agent_state(state)
+    status = "" if agent.get("alive", True) else f" dead:{agent.get('death_cause') or '?'}"
     lines = [
         f"Tick {state.tick} | temp {_number(state.sim_state.get('temp'))}C",
         (
@@ -478,7 +576,7 @@ def _demo_state_block(state: State) -> str:
             f"hp={_number(agent.get('health'))} "
             f"hunger={_number(agent.get('hunger'))} "
             f"thirst={_number(agent.get('thirst'))} "
-            f"warmth={_number(agent.get('warmth'))}"
+            f"warmth={_number(agent.get('warmth'))}{status}"
         ),
         "Visible map:",
         _render_visible_map(state),

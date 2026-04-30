@@ -2,6 +2,7 @@ from common.protocol import PROTOCOL_VERSION
 
 # SIM
 AGENTS_IN_SIM = 2
+SIM_MAX_TICKS = 100
 
 # MAP
 MAP_SIZE = 5
