@@ -87,6 +87,7 @@ MAX_PLAN_MESSAGES_PER_TICK = MAX_TALK_MESSAGES_PER_TICK
 DIRECT_AGENT_CHAT = _get_bool("DIRECT_AGENT_CHAT", False)
 MAX_DIRECT_CHAT_REPLIES_PER_TICK = _get_int("MAX_DIRECT_CHAT_REPLIES_PER_TICK", 5)
 CHAT_ACTION_BUDGET = _get_float("CHAT_ACTION_BUDGET", 0.1)
+TALK_SUMMARY_HISTORY_TICKS = _get_int("TALK_SUMMARY_HISTORY_TICKS", 5)
 
 BASE_PROMPT = """
 You are an agent in an unknown world. It is represented as a grid with other agents and resources.
@@ -100,7 +101,7 @@ agent.inventory is what you carry. visible_map tile resources are on the ground;
 Move actions can go to any listed valid target, including diagonals; do not assume only up/down/left/right.
 Meters: hunger/thirst are bad when high. hunger >70 is dangerous; thirst >50 starts hurting and >70 is dangerous. warmth <30 is dangerous. health <=0 means death.
 You can talk to other agents to form alliances, trade resources, deceive, fight or just chat.
-In the action phase, use talk_phase.summary instead of raw chat transcripts.
+In the action phase, use talk_phase.summary and talk_phase.previous_summaries instead of raw chat transcripts.
 """
 
 USER_PROMPT = ""

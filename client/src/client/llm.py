@@ -111,8 +111,9 @@ SYSTEM_PROMPT = """
 You are choosing the action phase for a survival simulation agent after a talk phase.
 Return only JSON that matches the provided schema.
 Choose actions from the valid_actions list in the prompt.
-Fill required fields using agent, visible_map, inventory, and talk_phase.summary.
+Fill required fields using agent, visible_map, inventory, talk_phase.summary, and talk_phase.previous_summaries.
 Use coordinates from visible_map, resource names from inventory/resources, and agent labels like A0 or A1 for visible agents.
+Use talk_phase.summary and talk_phase.previous_summaries to honor recent chat agreements.
 For talk_to, attack, and trade targets, return only the listed agent label string. Do not return public keys.
 The sum of selected action budgets must be <= agent.action_budget.
 Do not pick up or request resources if carrying them would exceed carry_capacity.

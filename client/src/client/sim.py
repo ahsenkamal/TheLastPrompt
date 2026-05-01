@@ -69,6 +69,7 @@ def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
     state: State | None = None
     pending_agent_messages: list[dict[str, Any]] = []
     recent_agent_messages: list[dict[str, Any]] = []
+    talk_summary_history: list[dict[str, Any]] = []
     direct_chat_budget_by_tick: dict[int, float] = {}
     deferred_received: ReceivedMessage | None = None
     server_sender = config.SERVER_PEER_ID or config.SERVER_PUBLIC_KEY
@@ -199,7 +200,7 @@ def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
         state.set_agent_messages(
             [],
             [],
-            _talk_phase_context(talk_result, state),
+            _talk_phase_context(talk_result, state, talk_summary_history),
         )
 
         # create prompt for user
@@ -254,6 +255,7 @@ def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
             )
         if runtime is not None:
             runtime.record_decision(state.sim_state, llm_response, accepted)
+        _append_talk_summary_history(talk_summary_history, state.tick, talk_result["talk_summary"])
 
 
 def _decode_message(raw_msg: str) -> dict[str, Any] | None:
@@ -561,14 +563,47 @@ def _run_talk_phase(
     return result
 
 
-def _talk_phase_context(talk_result: dict[str, Any], state: State) -> dict[str, Any]:
+def _talk_phase_context(
+    talk_result: dict[str, Any],
+    state: State,
+    talk_summary_history: list[dict[str, Any]],
+) -> dict[str, Any]:
     return {
         "summary": talk_result.get("talk_summary", ""),
+        "previous_summaries": _previous_talk_summaries(talk_summary_history, state.tick),
         "sent_messages_count": len(talk_result.get("messages", [])),
         "talk_budget": talk_result.get("talk_budget", 0),
         "talk_budget_spent": talk_result.get("talk_budget_spent", 0),
         "action_budget": talk_result.get("action_budget", _agent_action_budget(state)),
     }
+
+
+def _previous_talk_summaries(history: list[dict[str, Any]], current_tick: int) -> list[dict[str, Any]]:
+    history_ticks = max(0, config.TALK_SUMMARY_HISTORY_TICKS)
+    if history_ticks <= 0:
+        return []
+
+    first_tick = current_tick - history_ticks
+    return [
+        dict(entry)
+        for entry in history
+        if first_tick <= int(entry.get("tick", -1)) < current_tick
+    ]
+
+
+def _append_talk_summary_history(history: list[dict[str, Any]], tick: int, summary: str) -> None:
+    history_ticks = max(0, config.TALK_SUMMARY_HISTORY_TICKS)
+    if history_ticks <= 0:
+        history.clear()
+        return
+
+    summary = " ".join(str(summary or "").split())
+    if summary:
+        history.append({"tick": tick, "summary": summary})
+
+    first_tick = tick - history_ticks + 1
+    while history and int(history[0].get("tick", -1)) < first_tick:
+        del history[0]
 
 
 def _record_talk_phase_message(
