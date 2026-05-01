@@ -5,6 +5,8 @@ from common import axl
 import time
 import json
 import logging
+from queue import Empty, Queue
+from threading import Event, Thread
 from typing import Any
 
 from .llm import get_chat_response, get_llm_response, get_plan_response, get_summary_response
@@ -12,15 +14,61 @@ from .state import State
 from common.logging_config import demo_log
 
 ACTION_KEYS = ("action", "target", "consumable", "item")
+ReceivedMessage = tuple[str, str]
 logger = logging.getLogger(__name__)
 
 
 def client_loop(self_public_key: str, runtime: Any | None = None):
+    inbox = AxlInbox()
+    inbox.start()
+    try:
+        _client_loop(self_public_key, runtime, inbox)
+    finally:
+        inbox.stop()
+
+
+class AxlInbox:
+    def __init__(self, poll_interval: float = 0.1):
+        self._poll_interval = poll_interval
+        self._messages: Queue[ReceivedMessage] = Queue()
+        self._stop = Event()
+        self._thread = Thread(target=self._run, name="axl-recv", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+
+    def get(self, timeout: float | None = None) -> ReceivedMessage | None:
+        try:
+            return self._messages.get(timeout=timeout)
+        except Empty:
+            return None
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                received = axl.recv()
+            except Exception:
+                logger.exception("AXL receive failed")
+                self._stop.wait(self._poll_interval)
+                continue
+
+            if received is None:
+                self._stop.wait(self._poll_interval)
+                continue
+
+            self._messages.put(received)
+
+
+def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
     state: State | None = None
     pending_agent_messages: list[dict[str, Any]] = []
     recent_agent_messages: list[dict[str, Any]] = []
     direct_chat_budget_by_tick: dict[int, float] = {}
-    deferred_received: tuple[str, str] | None = None
+    deferred_received: ReceivedMessage | None = None
     server_sender = config.SERVER_PEER_ID or config.SERVER_PUBLIC_KEY
     logger.info(
         "using server id=%s axl_match_prefix=%s",
@@ -34,9 +82,8 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             received = deferred_received
             deferred_received = None
         else:
-            received = axl.recv()
+            received = inbox.get(timeout=0.1)
         if received is None:
-            time.sleep(0.1)
             continue
 
         sender, msg = received
@@ -141,6 +188,7 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             turn_messages,
             recent_agent_messages,
             runtime,
+            inbox,
         )
         deferred_received = talk_result.get("deferred_received")
         if deferred_received is not None:
@@ -286,6 +334,7 @@ def _run_talk_phase(
     turn_messages: list[dict[str, Any]],
     recent_agent_messages: list[dict[str, Any]],
     runtime: Any | None,
+    inbox: AxlInbox,
 ) -> dict[str, Any]:
     action_budget = _agent_action_budget(state)
     talk_budget_limit = max(0.0, config.TALK_BUDGET)
@@ -319,9 +368,13 @@ def _run_talk_phase(
         return result
 
     phase_messages = list(turn_messages)
+    prefetched_received: list[ReceivedMessage] = []
     if not talk_recipients and not turn_messages:
-        demo_log(logger, "Talk phase skipped: no visible talk recipients and no incoming messages")
-        return result
+        received = inbox.get(timeout=0.0)
+        if received is None:
+            demo_log(logger, "Talk phase skipped: no visible talk recipients and no incoming messages")
+            return result
+        prefetched_received.append(received)
 
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
     sent_messages: list[dict[str, str]] = []
@@ -338,7 +391,71 @@ def _run_talk_phase(
     decision_needed = True
     deadline = time.monotonic() + max(0.0, config.TALK_PHASE_SECONDS)
 
+    def consume_received(received: ReceivedMessage) -> bool:
+        nonlocal decision_needed
+
+        sender, raw_msg = received
+        msg = _decode_message(raw_msg)
+        if msg is None:
+            return False
+
+        if msg.get("protocol_version") != config.PROTOCOL_VERSION:
+            logger.warning(
+                "received unsupported protocol during talk phase sender=%s version=%s",
+                sender,
+                msg.get("protocol_version"),
+            )
+            return False
+
+        if msg.get("message_type") != config.MESSAGE_TYPE_AGENT_MSG:
+            result["deferred_received"] = received
+            return True
+
+        agent_message = _record_talk_phase_message(
+            state,
+            sender,
+            msg,
+            turn_messages,
+            recent_agent_messages,
+            phase_messages,
+            runtime,
+        )
+        if agent_message is None:
+            return False
+
+        peer = agent_message["from"]
+        message_tick = agent_message.get("tick")
+        if peer not in talk_recipients or (message_tick is not None and message_tick != state.tick):
+            return False
+
+        incoming_counts_by_peer[peer] = incoming_counts_by_peer.get(peer, 0) + 1
+        if _should_wait_for_peer_turn(
+            state,
+            peer,
+            sent_counts_by_peer,
+            incoming_counts_by_peer,
+            tie_break_wait_peers,
+        ):
+            waiting_for_reply_peers.add(peer)
+            return False
+
+        waiting_for_reply_peers.discard(peer)
+        pending_reply_peers.add(peer)
+        decision_needed = True
+        return False
+
     while True:
+        while prefetched_received:
+            if consume_received(prefetched_received.pop(0)):
+                return result
+
+        while True:
+            received = inbox.get(timeout=0.0)
+            if received is None:
+                break
+            if consume_received(received):
+                return result
+
         remaining_talk_budget = max(0.0, talk_budget_limit - len(sent_messages) * talk_budget)
         can_send_more = (
             len(sent_messages) < config.MAX_TALK_MESSAGES_PER_TICK
@@ -395,59 +512,13 @@ def _run_talk_phase(
         if config.TALK_PHASE_SECONDS <= 0 or time.monotonic() >= deadline:
             break
 
-        received = axl.recv()
+        timeout = min(0.1, max(0.0, deadline - time.monotonic()))
+        received = inbox.get(timeout=timeout)
         if received is None:
-            time.sleep(0.1)
             continue
 
-        sender, raw_msg = received
-        msg = _decode_message(raw_msg)
-        if msg is None:
-            continue
-
-        if msg.get("protocol_version") != config.PROTOCOL_VERSION:
-            logger.warning(
-                "received unsupported protocol during talk phase sender=%s version=%s",
-                sender,
-                msg.get("protocol_version"),
-            )
-            continue
-
-        if msg.get("message_type") != config.MESSAGE_TYPE_AGENT_MSG:
-            result["deferred_received"] = received
+        if consume_received(received):
             return result
-
-        agent_message = _record_talk_phase_message(
-            state,
-            sender,
-            msg,
-            turn_messages,
-            recent_agent_messages,
-            phase_messages,
-            runtime,
-        )
-        if agent_message is None:
-            continue
-
-        peer = agent_message["from"]
-        message_tick = agent_message.get("tick")
-        if peer not in talk_recipients or (message_tick is not None and message_tick != state.tick):
-            continue
-
-        incoming_counts_by_peer[peer] = incoming_counts_by_peer.get(peer, 0) + 1
-        if _should_wait_for_peer_turn(
-            state,
-            peer,
-            sent_counts_by_peer,
-            incoming_counts_by_peer,
-            tie_break_wait_peers,
-        ):
-            waiting_for_reply_peers.add(peer)
-            continue
-
-        waiting_for_reply_peers.discard(peer)
-        pending_reply_peers.add(peer)
-        decision_needed = True
 
     result["actions"] = [{"action": "talk_to", "target": recipient} for recipient in sorted(sent_recipients)]
     result["messages"] = sent_messages
