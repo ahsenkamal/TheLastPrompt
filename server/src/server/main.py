@@ -1,5 +1,6 @@
 from common import axl
 from common.logging_config import setup_logging
+from .dashboard import start_dashboard
 from .state import State
 from .messaging import recv_loop
 from .config import *
@@ -17,6 +18,13 @@ async def run_server():
 
     # setup server state
     state = State(AGENTS_IN_SIM, self_public_key)
+    if SERVER_DASHBOARD_ENABLED:
+        start_dashboard(
+            state,
+            host=SERVER_DASHBOARD_HOST,
+            port=SERVER_DASHBOARD_PORT,
+            db_path=REPLAY_DB_PATH,
+        )
 
     await recv_loop(state)
 
