@@ -31,6 +31,10 @@ class Simulation:
         self.action_counts: dict[int, dict[str, int]] = {agent.id: {} for agent in agents}
         self.kill_log: list[dict[str, Any]] = []
         self.death_log: list[dict[str, Any]] = []
+        self.trade_log: list[dict[str, Any]] = []
+        self.event_log: list[dict[str, Any]] = []
+        self.active_events: list[dict[str, Any]] = []
+        self.pending_trade_offers: list[dict[str, Any]] = []
         self._demo_previous_agents: dict[int, dict[str, Any]] = {}
         self._demo_previous_temp: float | None = None
 
@@ -64,6 +68,7 @@ class Simulation:
         sleep(60)
         # actions must have been received... continue with processing
 
+        self.pending_trade_offers = []
         self.rng.shuffle(self.agents)
         for agent in self.agents:
             self.pre_action_effects(agent)
@@ -143,6 +148,7 @@ class Simulation:
             demo_log(logger, "%s died (%s)", _agent_label(agent), cause)
 
     def enforce_agent_bounds(self, agent: Agent, cause: str = "health_depleted"):
+        agent.recalculate_inventory()
         if not agent.alive:
             agent.clamp_metrics()
             return
@@ -168,6 +174,8 @@ class Simulation:
             "leaderboard": scoreboard,
             "deaths": list(self.death_log),
             "kills": list(self.kill_log),
+            "trades": list(self.trade_log),
+            "events": list(self.event_log),
             "action_counts": {
                 str(agent_id): dict(counts)
                 for agent_id, counts in self.action_counts.items()
@@ -229,6 +237,14 @@ class Simulation:
                     f"tick {kill['tick']}: A{kill['killer_id']} killed A{kill['victim_id']} ({kill['cause']})"
                 )
 
+        if results["trades"]:
+            lines.append("Trades:")
+            for trade in results["trades"]:
+                lines.append(
+                    f"tick {trade['tick']}: A{trade['from_agent_id']} traded "
+                    f"{trade['offered']} with A{trade['to_agent_id']} for {trade['requested']}"
+                )
+
         if results["deaths"]:
             lines.append("Deaths:")
             for death in results["deaths"]:
@@ -265,6 +281,7 @@ class Simulation:
 
     def _sync_agent_metrics(self):
         for agent in self.agents:
+            agent.recalculate_inventory()
             agent.clamp_metrics()
             if agent.alive:
                 _update_action_budget(agent)
@@ -274,6 +291,25 @@ class Simulation:
             for tile in row:
                 if agent in tile.occupants:
                     tile.occupants.remove(agent)
+
+
+    def record_event(
+        self,
+        message: str,
+        *,
+        event_type: str,
+        x: int | None = None,
+        y: int | None = None,
+    ):
+        event = {
+            "tick": self.iteration,
+            "type": event_type,
+            "message": message,
+            "x": x,
+            "y": y,
+        }
+        self.event_log.append(event)
+        demo_log(logger, message)
 
 
     def pre_action_effects(self, agent: Agent):
@@ -382,6 +418,7 @@ class Simulation:
         before = _agent_snapshot(agent)
         current_tile = self.map.grid[agent.pos_y][agent.pos_x]
         in_own_shelter = agent.public_key in getattr(current_tile, "shelters", {})
+        hazard = getattr(current_tile, "hazard", None)
 
         # hunger and thirst increase
         agent.hunger = min(100, agent.hunger + 10)
@@ -412,8 +449,19 @@ class Simulation:
             else:
                 agent.warmth -= self.temp * 0.1
 
+        if hazard == "snowstorm" and not in_own_shelter:
+            agent.warmth -= 6
+            agent.mental_health -= 2
+        elif hazard == "disease_outbreak" and self.rng.random() < 0.08:
+            agent.health -= 6
+            agent.mental_health -= 2
+
         if agent.warmth < 30:
             agent.health -= (30 - agent.warmth) * 0.5
+
+        if agent.inventory_weight > agent.carry_capacity:
+            agent.thirst = min(100, agent.thirst + 2)
+            agent.hunger = min(100, agent.hunger + 2)
         
         self.enforce_agent_bounds(agent, _death_cause(agent) or "health_depleted")
 
@@ -429,6 +477,7 @@ class Simulation:
 
     def setup_next_iteration(self):
         next_iteration = self.iteration + 1
+        self._advance_world_events(next_iteration)
         for row in self.map.grid:
             for tile in row:
                 for crop in list(tile.crops):
@@ -443,10 +492,25 @@ class Simulation:
                             tile.pos_y,
                             crop,
                         )
+                for trap in getattr(tile, "traps", []):
+                    if trap.get("ready_iteration") == next_iteration:
+                        logger.info(
+                            "trap ready sim_id=%s tick=%s tile=(%s,%s) trap=%s",
+                            self.id,
+                            self.iteration,
+                            tile.pos_x,
+                            tile.pos_y,
+                            trap,
+                        )
 
         # update temp
         previous_temp = self.temp
-        self.temp = self.temp - 0.5 * self.rng.random()
+        temp_delta = -0.5 * self.rng.random()
+        if self._active_event("cold_snap") or self._active_event("snowstorm"):
+            temp_delta -= 1.0
+        elif self._active_event("rain"):
+            temp_delta -= 0.2
+        self.temp = self.temp + temp_delta
         logger.info(
             "next iteration setup sim_id=%s tick=%s next_tick=%s temp %.2f -> %.2f",
             self.id,
@@ -455,6 +519,96 @@ class Simulation:
             previous_temp,
             self.temp,
         )
+
+    def _advance_world_events(self, next_iteration: int):
+        self.active_events = [
+            event
+            for event in self.active_events
+            if event.get("ends_iteration", 0) > next_iteration
+        ]
+        self._clear_tile_hazards()
+
+        if self.rng.random() < 0.16:
+            self._start_random_event(next_iteration)
+
+        for event in self.active_events:
+            if event["type"] in {"snowstorm", "disease_outbreak"}:
+                self._mark_hazard(event)
+
+    def _start_random_event(self, next_iteration: int):
+        event_type = self.rng.choices(
+            ["rain", "cold_snap", "snowstorm", "supply_drop", "disease_outbreak"],
+            weights=[4, 3, 2, 2, 1],
+            k=1,
+        )[0]
+        if event_type == "supply_drop":
+            tile = self._random_passable_tile()
+            if tile is None:
+                return
+            tile.resources[ResourceType.PROCESSED_FOOD] += self.rng.randint(1, 3)
+            tile.resources[ResourceType.CLEAN_WATER] += self.rng.randint(1, 3)
+            if self.rng.random() < 0.5:
+                tile.resources[ResourceType.LIGHT_MEDS] += 1
+            self.record_event(
+                f"Supply drop lands at ({tile.pos_x},{tile.pos_y})",
+                event_type="supply_drop",
+                x=tile.pos_x,
+                y=tile.pos_y,
+            )
+            return
+
+        duration = self.rng.randint(2, 4)
+        event = {
+            "type": event_type,
+            "started_iteration": next_iteration,
+            "ends_iteration": next_iteration + duration,
+        }
+        if event_type in {"snowstorm", "disease_outbreak"}:
+            tile = self._random_passable_tile()
+            if tile is None:
+                return
+            event.update({"x": tile.pos_x, "y": tile.pos_y, "radius": 1})
+        self.active_events.append(event)
+
+        location = ""
+        if "x" in event:
+            location = f" near ({event['x']},{event['y']})"
+        self.record_event(
+            f"{event_type.replace('_', ' ')} begins{location}",
+            event_type=event_type,
+            x=event.get("x"),
+            y=event.get("y"),
+        )
+
+    def _random_passable_tile(self) -> Tile | None:
+        candidates = [
+            tile
+            for row in self.map.grid
+            for tile in row
+            if tile.type not in (TileType.WATER, TileType.MOUNTAIN)
+        ]
+        if not candidates:
+            return None
+        return self.rng.choice(candidates)
+
+    def _clear_tile_hazards(self):
+        for row in self.map.grid:
+            for tile in row:
+                tile.hazard = None
+
+    def _mark_hazard(self, event: dict[str, Any]):
+        x = event.get("x")
+        y = event.get("y")
+        radius = int(event.get("radius", 0))
+        if not isinstance(x, int) or not isinstance(y, int):
+            return
+        for row in self.map.grid:
+            for tile in row:
+                if abs(tile.pos_x - x) <= radius and abs(tile.pos_y - y) <= radius:
+                    tile.hazard = event["type"]
+
+    def _active_event(self, event_type: str) -> bool:
+        return any(event["type"] == event_type for event in self.active_events)
 
 
 def _agent_snapshot(agent: Agent) -> dict[str, Any]:
@@ -476,6 +630,11 @@ def _agent_snapshot(agent: Agent) -> dict[str, Any]:
             for resource, amount in agent.inventory.items()
             if amount > 0
         },
+        "inventory_weight": agent.inventory_weight,
+        "carry_capacity": agent.carry_capacity,
+        "reputation": round(agent.reputation, 2),
+        "trust": {str(agent_id): round(value, 2) for agent_id, value in agent.trust.items()},
+        "grudges": {str(agent_id): round(value, 2) for agent_id, value in agent.grudges.items()},
         "death_tick": agent.death_tick,
         "death_cause": agent.death_cause,
         "killed_by": agent.killed_by,
@@ -508,6 +667,8 @@ def _demo_action_line(sim, agent: Agent, action: Action) -> str:
 
     if action.action_type == ActionType.WAIT:
         return f"{_agent_label(agent)} waits"
+    if action.action_type == ActionType.REST:
+        return f"{_agent_label(agent)} rests"
     if action.action_type == ActionType.SLEEP:
         return f"{_agent_label(agent)} sleeps"
     if action.action_type == ActionType.EAT:
@@ -536,6 +697,8 @@ def _demo_action_line(sim, agent: Agent, action: Action) -> str:
         return f"{_agent_label(agent)} plants food at {target}"
     if action.action_type == ActionType.COOK_FOOD:
         return f"{_agent_label(agent)} cooks {consumable} with {item}"
+    if action.action_type == ActionType.PURIFY_WATER:
+        return f"{_agent_label(agent)} purifies water with {item}"
     if action.action_type == ActionType.STEAL:
         return f"{_agent_label(agent)} steals at {target}"
     if action.action_type == ActionType.CREATE_STORAGE:
@@ -546,8 +709,19 @@ def _demo_action_line(sim, agent: Agent, action: Action) -> str:
         return f"{_agent_label(agent)} picks up {consumable}"
     if action.action_type == ActionType.FISH:
         return f"{_agent_label(agent)} fishes at {target}"
+    if action.action_type == ActionType.CRAFT_FISHING_ROD:
+        return f"{_agent_label(agent)} crafts a fishing rod"
+    if action.action_type == ActionType.CRAFT_TRAP:
+        return f"{_agent_label(agent)} crafts a trap"
+    if action.action_type == ActionType.SET_TRAP:
+        return f"{_agent_label(agent)} sets a trap"
+    if action.action_type == ActionType.HARVEST_TRAP:
+        return f"{_agent_label(agent)} harvests a trap"
     if action.action_type == ActionType.TRADE:
-        return f"{_agent_label(agent)} trades with {_target_agent_label(sim, action.target)}"
+        return (
+            f"{_agent_label(agent)} offers {consumable} to {_target_agent_label(sim, action.target)} "
+            f"for {item}"
+        )
 
     return f"{_agent_label(agent)} does {action.action_type.value}"
 

@@ -14,6 +14,7 @@ from server.config import NORMAL_VISIBILITY_RADIUS, SNEAK_VISIBILITY_RADIUS
 
 class ActionType(StrEnum):
     WAIT = "wait"
+    REST = "rest"
     SLEEP = "sleep"
     EAT = "eat"
     DRINK = "drink"
@@ -28,16 +29,22 @@ class ActionType(StrEnum):
     ATTACK = "attack"
     GROW_FOOD = "grow_food"
     COOK_FOOD = "cook_food"
+    PURIFY_WATER = "purify_water"
     STEAL = "steal"
     CREATE_STORAGE = "create_storage"
     GATHER_WOOD = "gather_wood"
     PICK_RESOURCE = "pick_resource"
     FISH = "fish"
+    CRAFT_FISHING_ROD = "craft_fishing_rod"
+    CRAFT_TRAP = "craft_trap"
+    SET_TRAP = "set_trap"
+    HARVEST_TRAP = "harvest_trap"
     TRADE = "trade"
 
 
 ACTION_BUDGETS: dict[ActionType, float] = {
     ActionType.WAIT: 0.0,
+    ActionType.REST: 0.2,
     ActionType.SLEEP: 0.5,
     ActionType.EAT: 0.2,
     ActionType.DRINK: 0.1,
@@ -52,17 +59,23 @@ ACTION_BUDGETS: dict[ActionType, float] = {
     ActionType.ATTACK: 0.5,
     ActionType.GROW_FOOD: 0.5,
     ActionType.COOK_FOOD: 0.3,
+    ActionType.PURIFY_WATER: 0.2,
     ActionType.STEAL: 0.2,
     ActionType.CREATE_STORAGE: 0.3,
     ActionType.GATHER_WOOD: 0.3,
     ActionType.PICK_RESOURCE: 0.1,
     ActionType.FISH: 0.3,
+    ActionType.CRAFT_FISHING_ROD: 0.3,
+    ActionType.CRAFT_TRAP: 0.3,
+    ActionType.SET_TRAP: 0.2,
+    ActionType.HARVEST_TRAP: 0.2,
     ActionType.TRADE: 0.1,
 }
 
 
 ACTION_DESCRIPTIONS: dict[ActionType, str] = {
     ActionType.WAIT: "Do nothing and skip the turn.",
+    ActionType.REST: "Recover a little health and mental health without sleeping.",
     ActionType.SLEEP: "Risk of getting robbed but improves mental health.",
     ActionType.EAT: "Consume food to reduce hunger.",
     ActionType.DRINK: "Consume water to reduce thirst.",
@@ -77,17 +90,26 @@ ACTION_DESCRIPTIONS: dict[ActionType, str] = {
     ActionType.ATTACK: "Attack a visible agent.",
     ActionType.GROW_FOOD: "Plant seeds or materials on land; food appears in 3 iterations.",
     ActionType.COOK_FOOD: "Consume raw food and wood/fuel to make cooked food.",
+    ActionType.PURIFY_WATER: "Consume dirty water and wood/fuel to make clean water.",
     ActionType.STEAL: "Try to steal from a shelter tile, with a chance of getting caught.",
     ActionType.CREATE_STORAGE: "Consume wood to create storage on a shelter tile.",
     ActionType.GATHER_WOOD: "Gather wood from a forest tile; tools improve output.",
     ActionType.PICK_RESOURCE: "Pick a resource from the current tile.",
     ActionType.FISH: "Use a fishing rod on a water tile for a chance at raw food.",
-    ActionType.TRADE: "Reserve budget to trade with a visible agent.",
+    ActionType.CRAFT_FISHING_ROD: "Consume wood and materials to craft a fishing rod.",
+    ActionType.CRAFT_TRAP: "Consume wood and scrap to craft a trap.",
+    ActionType.SET_TRAP: "Place a carried trap on the current tile.",
+    ActionType.HARVEST_TRAP: "Harvest a ready trap on the current tile for raw food.",
+    ActionType.TRADE: (
+        "Offer one carried resource for one resource from a visible agent; exchange happens when both agents "
+        "submit matching trade actions."
+    ),
 }
 
 
 ACTION_FIELD_SPECS: dict[ActionType, dict[str, Any]] = {
     ActionType.WAIT: {"required_fields": {}, "notes": "No fields required."},
+    ActionType.REST: {"required_fields": {}, "notes": "No fields required."},
     ActionType.SLEEP: {"required_fields": {}, "notes": "No fields required."},
     ActionType.TRAIN: {"required_fields": {}, "notes": "No fields required."},
     ActionType.EAT: {
@@ -129,6 +151,12 @@ ACTION_FIELD_SPECS: dict[ActionType, dict[str, Any]] = {
             "item": "fuel or wood from your inventory",
         },
     },
+    ActionType.PURIFY_WATER: {
+        "required_fields": {
+            "consumable": "dirty_water",
+            "item": "fuel or wood from your inventory",
+        },
+    },
     ActionType.STEAL: {
         "required_fields": {"target": {"x": "visible tile x with another agent shelter", "y": "visible tile y"}},
     },
@@ -144,8 +172,17 @@ ACTION_FIELD_SPECS: dict[ActionType, dict[str, Any]] = {
     ActionType.FISH: {
         "required_fields": {"target": {"x": "visible water tile x", "y": "visible water tile y"}},
     },
+    ActionType.CRAFT_FISHING_ROD: {"required_fields": {}, "notes": "Requires wood and materials."},
+    ActionType.CRAFT_TRAP: {"required_fields": {}, "notes": "Requires wood and scrap."},
+    ActionType.SET_TRAP: {"required_fields": {}, "notes": "Requires a trap in inventory; uses current tile."},
+    ActionType.HARVEST_TRAP: {"required_fields": {}, "notes": "Requires a ready own trap on current tile."},
     ActionType.TRADE: {
-        "required_fields": {"target": {"id": "visible agent id", "public_key": "visible agent public key"}},
+        "required_fields": {
+            "target": {"id": "visible agent id", "public_key": "visible agent public key"},
+            "consumable": "resource you offer from your inventory",
+            "item": "resource you request from the target",
+        },
+        "notes": "One-for-one barter. Both agents must submit matching trade actions in the same tick.",
     },
 }
 
@@ -159,6 +196,7 @@ WATER_RESOURCES = (ResourceType.CLEAN_WATER, ResourceType.DIRTY_WATER)
 MED_RESOURCES = (ResourceType.HEAVY_MEDS, ResourceType.LIGHT_MEDS)
 WARMUP_RESOURCES = (ResourceType.FUEL, ResourceType.WOOD)
 COOK_FUEL_RESOURCES = (ResourceType.FUEL, ResourceType.WOOD)
+CRAFTABLE_FUEL_RESOURCES = (ResourceType.FUEL, ResourceType.WOOD)
 PASSABLE_TILE_TYPES = (TileType.LAND, TileType.FOREST, TileType.BUILDING)
 
 
@@ -237,7 +275,9 @@ def execute_action(sim: "Simulation", agent: "Agent", action: Action | dict[str,
 
     if action.action_type == ActionType.WAIT:
         return
-    if action.action_type == ActionType.SLEEP:
+    if action.action_type == ActionType.REST:
+        _rest(agent)
+    elif action.action_type == ActionType.SLEEP:
         _sleep(sim, agent)
     elif action.action_type == ActionType.EAT:
         _eat(agent, action)
@@ -267,6 +307,8 @@ def execute_action(sim: "Simulation", agent: "Agent", action: Action | dict[str,
         _grow_food(sim, agent, action)
     elif action.action_type == ActionType.COOK_FOOD:
         _cook_food(agent, action)
+    elif action.action_type == ActionType.PURIFY_WATER:
+        _purify_water(agent, action)
     elif action.action_type == ActionType.STEAL:
         _steal(sim, agent, action)
     elif action.action_type == ActionType.CREATE_STORAGE:
@@ -277,8 +319,16 @@ def execute_action(sim: "Simulation", agent: "Agent", action: Action | dict[str,
         _pick_resource(sim, agent, action)
     elif action.action_type == ActionType.FISH:
         _fish(sim, agent, action)
+    elif action.action_type == ActionType.CRAFT_FISHING_ROD:
+        _craft_fishing_rod(agent)
+    elif action.action_type == ActionType.CRAFT_TRAP:
+        _craft_trap(agent)
+    elif action.action_type == ActionType.SET_TRAP:
+        _set_trap(sim, agent)
+    elif action.action_type == ActionType.HARVEST_TRAP:
+        _harvest_trap(sim, agent)
     elif action.action_type == ActionType.TRADE:
-        return
+        _trade(sim, agent, action)
 
 
 def create_valid_actions(sim: "Simulation", agent: "Agent") -> list[dict[str, Any]]:
@@ -312,6 +362,7 @@ def _create_valid_action_objects(sim: "Simulation", agent: "Agent") -> list[Acti
 
     actions = [
         Action(ActionType.WAIT),
+        Action(ActionType.REST),
         Action(ActionType.SLEEP),
         Action(ActionType.TRAIN),
     ]
@@ -356,6 +407,23 @@ def _add_inventory_actions(actions: list[Action], agent: "Agent") -> None:
                     )
                 )
 
+    if _has_resource(agent, ResourceType.DIRTY_WATER):
+        for fuel in CRAFTABLE_FUEL_RESOURCES:
+            if _has_resource(agent, fuel):
+                actions.append(
+                    Action(
+                        ActionType.PURIFY_WATER,
+                        consumable=ResourceType.DIRTY_WATER,
+                        item=fuel,
+                    )
+                )
+
+    if _has_resource(agent, ResourceType.WOOD) and _has_resource(agent, ResourceType.MATERIALS):
+        actions.append(Action(ActionType.CRAFT_FISHING_ROD))
+
+    if _has_resource(agent, ResourceType.WOOD, 2) and _has_resource(agent, ResourceType.SCRAP):
+        actions.append(Action(ActionType.CRAFT_TRAP))
+
 
 def _add_social_actions(actions: list[Action], sim: "Simulation", agent: "Agent") -> None:
     for other_agent in sim.agents:
@@ -366,7 +434,17 @@ def _add_social_actions(actions: list[Action], sim: "Simulation", agent: "Agent"
 
         target = _agent_target(other_agent)
         actions.append(Action(ActionType.TALK_TO, target=other_agent.public_key))
-        actions.append(Action(ActionType.TRADE, target=target))
+        for offered_resource in _positive_inventory_resources(agent):
+            for requested_resource in _positive_inventory_resources(other_agent):
+                if requested_resource != offered_resource:
+                    actions.append(
+                        Action(
+                            ActionType.TRADE,
+                            target=target,
+                            consumable=offered_resource,
+                            item=requested_resource,
+                        )
+                    )
         actions.append(Action(ActionType.ATTACK, target=target))
 
 
@@ -402,8 +480,16 @@ def _add_tile_actions(actions: list[Action], sim: "Simulation", agent: "Agent", 
         actions.append(Action(ActionType.GATHER_WOOD, target=_tile_target(current_tile)))
 
     for resource, amount in current_tile.resources.items():
-        if amount > 0:
+        if amount > 0 and agent.remaining_capacity_for(resource) > 0:
             actions.append(Action(ActionType.PICK_RESOURCE, consumable=resource))
+
+    if _has_resource(agent, ResourceType.TRAP):
+        actions.append(Action(ActionType.SET_TRAP))
+
+    for trap in getattr(current_tile, "traps", []):
+        if trap.get("owner") == agent.public_key and trap.get("ready_iteration", 0) <= sim.iteration:
+            actions.append(Action(ActionType.HARVEST_TRAP))
+            break
 
     if _has_resource(agent, ResourceType.MATERIALS):
         for x, y in agent.visible_tiles:
@@ -441,9 +527,6 @@ def _action_matches_template(action: Action, template: Action) -> bool:
     if not _field_matches(action.consumable, template.consumable):
         return False
 
-    if action.action_type == ActionType.TRADE:
-        return True
-
     return _field_matches(action.item, template.item)
 
 
@@ -451,6 +534,12 @@ def _field_matches(value: Any, template: Any) -> bool:
     if template is None:
         return value is None
     return _canonical_value(value) == _canonical_value(template)
+
+
+def _rest(agent: "Agent") -> None:
+    agent.health = min(100, agent.health + 3)
+    agent.mental_health = min(100, agent.mental_health + 8)
+    agent.warmth = min(100, agent.warmth + 3)
 
 
 def _sleep(sim: "Simulation", agent: "Agent") -> None:
@@ -467,6 +556,9 @@ def _sleep(sim: "Simulation", agent: "Agent") -> None:
 
     stolen_resource = sim.rng.choice(stealable)
     agent.inventory[stolen_resource] -= 1
+    if agent.inventory[stolen_resource] <= 0:
+        agent.inventory.pop(stolen_resource, None)
+    agent.recalculate_inventory()
 
 
 def _eat(agent: "Agent", action: Action) -> None:
@@ -577,10 +669,23 @@ def _cook_food(agent: "Agent", action: Action) -> None:
     if not _consume_resource(agent, ResourceType.RAW_FOOD):
         return
     if not _consume_resource(agent, fuel):
-        agent.inventory[ResourceType.RAW_FOOD] = agent.inventory.get(ResourceType.RAW_FOOD, 0) + 1
+        _add_resource(agent, ResourceType.RAW_FOOD)
         return
 
-    agent.inventory[ResourceType.COOKED_FOOD] = agent.inventory.get(ResourceType.COOKED_FOOD, 0) + 1
+    _add_resource(agent, ResourceType.COOKED_FOOD)
+
+
+def _purify_water(agent: "Agent", action: Action) -> None:
+    fuel = _choose_resource(agent, action.item, CRAFTABLE_FUEL_RESOURCES)
+    if fuel is None:
+        return
+    if not _consume_resource(agent, ResourceType.DIRTY_WATER):
+        return
+    if not _consume_resource(agent, fuel):
+        _add_resource(agent, ResourceType.DIRTY_WATER)
+        return
+
+    _add_resource(agent, ResourceType.CLEAN_WATER)
 
 
 def _steal(sim: "Simulation", agent: "Agent", action: Action) -> None:
@@ -590,6 +695,8 @@ def _steal(sim: "Simulation", agent: "Agent", action: Action) -> None:
     if sim.rng.random() < 0.35:
         for occupant in tile.occupants:
             if occupant is not agent and occupant.alive:
+                _adjust_relation(occupant.grudges, agent.id, 15)
+                agent.reputation = max(0, agent.reputation - 4)
                 _apply_attack(sim, occupant, agent)
                 return
         agent.mental_health = max(0, agent.mental_health - 5)
@@ -601,7 +708,11 @@ def _steal(sim: "Simulation", agent: "Agent", action: Action) -> None:
         for resource, amount in storage.items():
             if amount > 0:
                 storage[resource] -= 1
-                agent.inventory[resource] = agent.inventory.get(resource, 0) + 1
+                _add_resource(agent, resource)
+                owner_agent = _find_agent(sim, owner)
+                if owner_agent is not None:
+                    _adjust_relation(owner_agent.grudges, agent.id, 10)
+                    owner_agent.reputation = max(0, owner_agent.reputation - 1)
                 return
 
 
@@ -624,7 +735,7 @@ def _gather_wood(sim: "Simulation", agent: "Agent", action: Action) -> None:
         return
 
     amount = 5 if _has_resource(agent, ResourceType.TOOLS) else 1
-    agent.inventory[ResourceType.WOOD] = agent.inventory.get(ResourceType.WOOD, 0) + amount
+    _add_resource(agent, ResourceType.WOOD, amount)
 
 
 def _pick_resource(sim: "Simulation", agent: "Agent", action: Action) -> None:
@@ -644,13 +755,140 @@ def _fish(sim: "Simulation", agent: "Agent", action: Action) -> None:
         return
 
     if sim.rng.random() < 0.7:
-        agent.inventory[ResourceType.RAW_FOOD] = agent.inventory.get(ResourceType.RAW_FOOD, 0) + 1
+        _add_resource(agent, ResourceType.RAW_FOOD)
+
+
+def _craft_fishing_rod(agent: "Agent") -> None:
+    if not _consume_resource(agent, ResourceType.WOOD):
+        return
+    if not _consume_resource(agent, ResourceType.MATERIALS):
+        _add_resource(agent, ResourceType.WOOD)
+        return
+
+    _add_resource(agent, ResourceType.FISHING_ROD)
+
+
+def _craft_trap(agent: "Agent") -> None:
+    if not _consume_resource(agent, ResourceType.WOOD, 2):
+        return
+    if not _consume_resource(agent, ResourceType.SCRAP):
+        _add_resource(agent, ResourceType.WOOD, 2)
+        return
+
+    _add_resource(agent, ResourceType.TRAP)
+
+
+def _set_trap(sim: "Simulation", agent: "Agent") -> None:
+    tile = _current_tile(sim, agent)
+    if tile.type not in PASSABLE_TILE_TYPES:
+        return
+    if not _consume_resource(agent, ResourceType.TRAP):
+        return
+
+    tile.traps.append(
+        {
+            "owner": agent.public_key,
+            "created_iteration": sim.iteration,
+            "ready_iteration": sim.iteration + 2,
+        }
+    )
+
+
+def _harvest_trap(sim: "Simulation", agent: "Agent") -> None:
+    tile = _current_tile(sim, agent)
+    for trap in list(getattr(tile, "traps", [])):
+        if trap.get("owner") != agent.public_key or trap.get("ready_iteration", 0) > sim.iteration:
+            continue
+        tile.traps.remove(trap)
+        if sim.rng.random() < 0.75:
+            _add_resource(agent, ResourceType.RAW_FOOD, sim.rng.randint(1, 3))
+        else:
+            _add_resource(agent, ResourceType.TRAP)
+        return
+
+
+def _trade(sim: "Simulation", agent: "Agent", action: Action) -> None:
+    target_agent = _find_agent(sim, action.target)
+    offered_resource = _resource_from_value(action.consumable)
+    requested_resource = _resource_from_value(action.item)
+    if (
+        target_agent is None
+        or target_agent is agent
+        or not target_agent.alive
+        or offered_resource is None
+        or requested_resource is None
+    ):
+        return
+    if not _has_resource(agent, offered_resource):
+        return
+
+    pending_offers = getattr(sim, "pending_trade_offers", [])
+    for offer in pending_offers:
+        if offer.get("fulfilled"):
+            continue
+        if offer.get("from_agent_id") != target_agent.id or offer.get("to_agent_id") != agent.id:
+            continue
+        if offer.get("offered") != requested_resource or offer.get("requested") != offered_resource:
+            continue
+        if not _has_resource(target_agent, requested_resource) or not _has_resource(agent, offered_resource):
+            return
+
+        if not _consume_resource(agent, offered_resource):
+            return
+        if not _consume_resource(target_agent, requested_resource):
+            _add_resource(agent, offered_resource)
+            return
+        if not _add_resource(agent, requested_resource):
+            _add_resource(target_agent, requested_resource)
+            _add_resource(agent, offered_resource)
+            return
+        if not _add_resource(target_agent, offered_resource):
+            _consume_resource(agent, requested_resource)
+            _add_resource(target_agent, requested_resource)
+            _add_resource(agent, offered_resource)
+            return
+
+        offer["fulfilled"] = True
+        _adjust_relation(agent.trust, target_agent.id, 5)
+        _adjust_relation(target_agent.trust, agent.id, 5)
+        trade_event = {
+            "tick": sim.iteration,
+            "from_agent_id": agent.id,
+            "to_agent_id": target_agent.id,
+            "offered": offered_resource.value,
+            "requested": requested_resource.value,
+        }
+        getattr(sim, "trade_log", []).append(trade_event)
+        _record_event(
+            sim,
+            (
+                f"A{agent.id} traded {offered_resource.value} to A{target_agent.id} "
+                f"for {requested_resource.value}"
+            ),
+            event_type="trade",
+            x=agent.pos_x,
+            y=agent.pos_y,
+        )
+        return
+
+    pending_offers.append(
+        {
+            "tick": sim.iteration,
+            "from_agent_id": agent.id,
+            "to_agent_id": target_agent.id,
+            "offered": offered_resource,
+            "requested": requested_resource,
+            "fulfilled": False,
+        }
+    )
 
 
 def _apply_attack(sim: "Simulation", attacker: "Agent", defender: "Agent") -> None:
     damage = max(5, int((attacker.strength / 10) + sim.rng.randint(0, 12)))
     defender.health -= damage
     defender.mental_health = max(0, defender.mental_health - 5)
+    _adjust_relation(defender.grudges, attacker.id, 12)
+    attacker.reputation = max(0, attacker.reputation - 3)
 
     if defender.health <= 0:
         sim.kill_agent(defender, "attack", attacker)
@@ -662,19 +900,44 @@ def _move_tile_resource_to_inventory(tile: Any, agent: "Agent", resource: Resour
     amount = tile.resources.get(resource, 0)
     if amount <= 0:
         return
-    tile.resources[resource] = 0
-    agent.inventory[resource] = agent.inventory.get(resource, 0) + amount
+    moved = _add_resource(agent, resource, amount)
+    if moved <= 0:
+        return
+    tile.resources[resource] = amount - moved
 
 
 def _consume_resource(agent: "Agent", resource: ResourceType, amount: int = 1) -> bool:
     if agent.inventory.get(resource, 0) < amount:
         return False
     agent.inventory[resource] -= amount
+    if agent.inventory[resource] <= 0:
+        agent.inventory.pop(resource, None)
+    agent.recalculate_inventory()
     return True
 
 
 def _has_resource(agent: "Agent", resource: ResourceType, amount: int = 1) -> bool:
     return agent.inventory.get(resource, 0) >= amount
+
+
+def _add_resource(agent: "Agent", resource: ResourceType, amount: int = 1) -> int:
+    if amount <= 0:
+        return 0
+    can_carry = agent.remaining_capacity_for(resource)
+    added = min(amount, can_carry)
+    if added <= 0:
+        return 0
+    agent.inventory[resource] = agent.inventory.get(resource, 0) + added
+    agent.recalculate_inventory()
+    return added
+
+
+def _positive_inventory_resources(agent: "Agent") -> list[ResourceType]:
+    return [
+        resource
+        for resource, amount in agent.inventory.items()
+        if amount > 0
+    ]
 
 
 def _choose_resource(
@@ -733,6 +996,23 @@ def _agent_target(agent: "Agent") -> dict[str, Any]:
 
 def _tile_target(tile: Any) -> dict[str, int]:
     return {"x": tile.pos_x, "y": tile.pos_y}
+
+
+def _adjust_relation(values: dict[int, float], agent_id: int, delta: float) -> None:
+    values[agent_id] = max(0, min(100, values.get(agent_id, 50.0) + delta))
+
+
+def _record_event(
+    sim: "Simulation",
+    message: str,
+    *,
+    event_type: str,
+    x: int | None = None,
+    y: int | None = None,
+) -> None:
+    record_event = getattr(sim, "record_event", None)
+    if callable(record_event):
+        record_event(message, event_type=event_type, x=x, y=y)
 
 
 def _canonical_value(value: Any) -> Any:
