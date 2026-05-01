@@ -15,7 +15,7 @@ ACTION_KEYS = ("action", "target", "consumable", "item")
 logger = logging.getLogger(__name__)
 
 
-def client_loop(self_public_key: str):
+def client_loop(self_public_key: str, runtime: Any | None = None):
     state: State | None = None
     pending_agent_messages: list[dict[str, Any]] = []
     direct_chat_budget_by_tick: dict[int, float] = {}
@@ -56,6 +56,7 @@ def client_loop(self_public_key: str):
                     state,
                     self_public_key,
                     direct_chat_budget_by_tick,
+                    runtime,
                 )
             continue
 
@@ -91,6 +92,8 @@ def client_loop(self_public_key: str):
         else:
             state.update(received_state)
         state.set_agent_messages(pending_agent_messages)
+        if runtime is not None:
+            runtime.record_state(state.sim_state, pending_agent_messages)
         _prune_direct_chat_budget(direct_chat_budget_by_tick, state.tick)
         logger.info(
             "state update sim_id=%s tick=%s agent=%s valid_actions=%s incoming_agent_messages=%s",
@@ -128,7 +131,9 @@ def client_loop(self_public_key: str):
             logger.info("llm reasoning tick=%s not returned", state.tick)
 
         # send response to server
-        _send_llm_response(llm_response, state, self_public_key)
+        accepted = _send_llm_response(llm_response, state, self_public_key)
+        if runtime is not None:
+            runtime.record_decision(state.sim_state, llm_response, accepted)
 
 
 def _decode_message(raw_msg: str) -> dict[str, Any] | None:
@@ -199,7 +204,7 @@ def _send_llm_response(
     llm_response: dict[str, Any],
     state: State,
     self_public_key: str,
-) -> None:
+) -> dict[str, Any]:
     actions = _filter_actions(
         llm_response.get("actions", []),
         state.get_valid_actions(),
@@ -218,7 +223,8 @@ def _send_llm_response(
         _send_agent_action(action, tick, self_public_key)
 
     talk_recipients = _talk_recipients(actions)
-    for message in _filter_agent_messages(llm_response.get("messages", []), talk_recipients):
+    accepted_messages = _filter_agent_messages(llm_response.get("messages", []), talk_recipients)
+    for message in accepted_messages:
         demo_log(
             logger,
             "You -> %s: %s",
@@ -226,6 +232,8 @@ def _send_llm_response(
             _one_line(message["content"], 240),
         )
         _send_agent_message(message["recipient"], message["content"], tick, self_public_key)
+
+    return {"actions": actions, "messages": accepted_messages}
 
 
 def _filter_actions(
@@ -390,6 +398,7 @@ def _try_direct_chat_reply(
     state: State,
     self_public_key: str,
     direct_chat_budget_by_tick: dict[int, float],
+    runtime: Any | None = None,
 ) -> None:
     if not config.DIRECT_AGENT_CHAT:
         return
@@ -438,6 +447,14 @@ def _try_direct_chat_reply(
     _send_agent_action({"action": "talk_to", "target": recipient}, None, self_public_key)
     direct_chat_budget_by_tick[tick] = spent + talk_budget
     demo_log(logger, "You -> %s: %s", sender_label, _one_line(reply, 240))
+    if runtime is not None:
+        runtime.record_chat(
+            state.sim_state,
+            "outgoing",
+            recipient,
+            reply,
+            {"mode": "direct_reply"},
+        )
     _send_agent_message(recipient, reply, tick, self_public_key)
 
 

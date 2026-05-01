@@ -4,6 +4,7 @@ from pathlib import Path
 from common import axl
 from common.logging_config import setup_logging
 from . import config
+from .dashboard import start_dashboard
 from .sim import client_loop
 import logging
 
@@ -37,11 +38,19 @@ def main():
     # setup axl
     self_public_key = axl.get_self_public_key()
     logger.info("client public_key=%s prompt_path=%s", self_public_key, args.prompt_path)
+    runtime = None
+    if config.CLIENT_DASHBOARD_ENABLED:
+        runtime = start_dashboard(
+            self_public_key,
+            host=config.CLIENT_DASHBOARD_HOST,
+            port=config.CLIENT_DASHBOARD_PORT,
+            db_path=config.CLIENT_REPLAY_DB_PATH,
+        )
 
     # send matchmaking request to server
     send_matchmaking_request(self_public_key)
 
-    client_loop(self_public_key)
+    client_loop(self_public_key, runtime)
 
 if __name__ == "__main__":
     main()

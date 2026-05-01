@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Last Prompt Agent</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Agent Cockpit</p>
+          <h1>The Last Prompt</h1>
+        </div>
+        <div class="status">
+          <span id="publicKey">agent: ...</span>
+          <span id="connection">connecting</span>
+          <button id="refreshButton" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="left">
+          <section class="identity">
+            <div class="section-head">
+              <h2 id="agentName">Agent</h2>
+              <span id="tick">tick 0</span>
+            </div>
+            <div id="meters" class="meters"></div>
+            <div id="inventory" class="inventory"></div>
+          </section>
+
+          <section>
+            <div class="section-head">
+              <h2>Actions</h2>
+              <span id="actionBudget">budget</span>
+            </div>
+            <div id="validActions" class="action-grid"></div>
+          </section>
+        </aside>
+
+        <section class="center">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow" id="modeLabel">Live Sight</p>
+              <h2 id="simTitle">Waiting for state</h2>
+            </div>
+            <div class="controls">
+              <button id="playButton" type="button">Play</button>
+              <input id="timeline" type="range" min="0" max="0" value="0" />
+              <span id="timelineLabel">now</span>
+            </div>
+          </div>
+          <div id="mapGrid" class="map-grid"></div>
+        </section>
+
+        <aside class="right">
+          <section>
+            <div class="section-head">
+              <h2>Thinking</h2>
+              <span id="decisionMeta">latest</span>
+            </div>
+            <pre id="thinking"></pre>
+          </section>
+
+          <section>
+            <div class="section-head">
+              <h2>Chat</h2>
+              <span id="chatCount">0</span>
+            </div>
+            <div id="chat" class="feed"></div>
+          </section>
+
+          <section>
+            <div class="section-head">
+              <h2>History</h2>
+              <span id="historyCount">0 sims</span>
+            </div>
+            <div id="history" class="history-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
