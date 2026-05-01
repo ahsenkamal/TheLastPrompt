@@ -81,6 +81,9 @@ Return only JSON that matches the provided schema.
 Choose actions from the valid_actions list in the prompt.
 Fill required fields using agent, visible_map, inventory, and incoming_agent_messages.
 Use coordinates from visible_map, resource names from inventory/resources, and public keys from visible occupants.
+The sum of selected action budgets must be <= agent.action_budget.
+Do not pick up or request resources if carrying them would exceed carry_capacity.
+For trade, use consumable as the resource you offer and item as the resource you request; trade only resolves when both agents submit matching trade actions.
 Use messages only when you also choose a valid talk_to action for the same recipient public key.
 Do not include explanations, markdown, or keys outside the schema.
 """

@@ -200,7 +200,11 @@ def _send_llm_response(
     state: State,
     self_public_key: str,
 ) -> None:
-    actions = _filter_actions(llm_response.get("actions", []), state.get_valid_actions())
+    actions = _filter_actions(
+        llm_response.get("actions", []),
+        state.get_valid_actions(),
+        _agent_action_budget(state),
+    )
     if not actions:
         wait_action = _default_wait_action(state.get_valid_actions())
         if wait_action is not None:
@@ -227,8 +231,10 @@ def _send_llm_response(
 def _filter_actions(
     actions: list[dict[str, Any]],
     valid_actions: list[dict[str, Any]],
+    action_budget: float,
 ) -> list[dict[str, Any]]:
     valid_action_specs = _valid_action_specs(valid_actions)
+    remaining_budget = max(0.0, action_budget)
 
     selected_actions = []
     for raw_action in actions[: config.MAX_ACTIONS_PER_TICK]:
@@ -237,11 +243,12 @@ def _filter_actions(
             logger.warning("skipping invalid LLM action raw_action=%s", raw_action)
             continue
 
-        required_fields = valid_action_specs.get(action["action"])
-        if required_fields is None:
+        spec = valid_action_specs.get(action["action"])
+        if spec is None:
             logger.warning("skipping unavailable LLM action action=%s raw_action=%s", action["action"], raw_action)
             continue
 
+        required_fields = spec["required_fields"]
         missing_fields = [field for field in required_fields if field not in action]
         if missing_fields:
             logger.warning(
@@ -252,12 +259,23 @@ def _filter_actions(
             )
             continue
 
+        budget = spec["budget"]
+        if budget > remaining_budget + 1e-9:
+            logger.info(
+                "skipping LLM action over client budget action=%s budget=%.2f remaining_budget=%.2f",
+                action,
+                budget,
+                remaining_budget,
+            )
+            continue
+
         selected_actions.append(action)
+        remaining_budget -= budget
 
     return selected_actions
 
 
-def _valid_action_specs(valid_actions: list[dict[str, Any]]) -> dict[str, set[str]]:
+def _valid_action_specs(valid_actions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     specs = {}
     for valid_action in valid_actions:
         action = _wire_action(valid_action)
@@ -265,10 +283,15 @@ def _valid_action_specs(valid_actions: list[dict[str, Any]]) -> dict[str, set[st
             continue
 
         required_fields = valid_action.get("required_fields", {})
+        try:
+            budget = float(valid_action.get("budget", 1.0))
+        except (TypeError, ValueError):
+            budget = 1.0
         if isinstance(required_fields, dict):
-            specs[action["action"]] = set(required_fields)
+            field_names = set(required_fields)
         else:
-            specs[action["action"]] = set()
+            field_names = set()
+        specs[action["action"]] = {"required_fields": field_names, "budget": max(0.0, budget)}
     return specs
 
 
@@ -431,7 +454,8 @@ def _direct_chat_prompt(state: State, agent_message: dict[str, Any]) -> str:
                 f"health={_number(agent.get('health'))}, "
                 f"hunger={_number(agent.get('hunger'))}, "
                 f"thirst={_number(agent.get('thirst'))}, "
-                f"warmth={_number(agent.get('warmth'))}"
+                f"warmth={_number(agent.get('warmth'))}, "
+                f"carry={_number(agent.get('inventory_weight'))}/{_number(agent.get('carry_capacity'))}"
             ),
             f"Inventory: {_inventory_text(agent.get('inventory'))}",
             "Visible map:",
@@ -576,7 +600,8 @@ def _demo_state_block(state: State) -> str:
             f"hp={_number(agent.get('health'))} "
             f"hunger={_number(agent.get('hunger'))} "
             f"thirst={_number(agent.get('thirst'))} "
-            f"warmth={_number(agent.get('warmth'))}{status}"
+            f"warmth={_number(agent.get('warmth'))} "
+            f"carry={_number(agent.get('inventory_weight'))}/{_number(agent.get('carry_capacity'))}{status}"
         ),
         "Visible map:",
         _render_visible_map(state),
@@ -648,6 +673,8 @@ def _demo_action(action: dict[str, Any], state: State) -> str:
 
     if action_name == "wait":
         return "wait"
+    if action_name == "rest":
+        return "rest"
     if action_name == "sleep":
         return "sleep"
     if action_name == "eat":
@@ -676,6 +703,8 @@ def _demo_action(action: dict[str, Any], state: State) -> str:
         return f"plant food at {_target_text(target)}"
     if action_name == "cook_food":
         return f"cook {_plain_value(consumable)} with {_plain_value(item)}"
+    if action_name == "purify_water":
+        return f"purify water with {_plain_value(item)}"
     if action_name == "steal":
         return f"steal at {_target_text(target)}"
     if action_name == "create_storage":
@@ -686,8 +715,19 @@ def _demo_action(action: dict[str, Any], state: State) -> str:
         return f"pick up {_plain_value(consumable)}"
     if action_name == "fish":
         return f"fish at {_target_text(target)}"
+    if action_name == "craft_fishing_rod":
+        return "craft fishing rod"
+    if action_name == "craft_trap":
+        return "craft trap"
+    if action_name == "set_trap":
+        return "set trap"
+    if action_name == "harvest_trap":
+        return "harvest trap"
     if action_name == "trade":
-        return f"trade with {_agent_label_from_target(state, target)}"
+        return (
+            f"offer {_plain_value(consumable)} to {_agent_label_from_target(state, target)} "
+            f"for {_plain_value(item)}"
+        )
     return action_name.replace("_", " ")
 
 
