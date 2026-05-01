@@ -101,6 +101,7 @@ class Simulation:
         if self.game_over:
             logger.info("simulation ended sim_id=%s tick=%s reason=%s results=%s", self.id, self.iteration, self.end_reason, self.results())
             demo_log(logger, self.results_text())
+            self._persist_tick("end")
             self._persist_simulation("finished")
             send_states_to_agents(self)
         else:

@@ -28,7 +28,18 @@ class State:
         return (agents, self.seed)
 
     def find_sim_and_agent(self, agent_public_key: str) -> tuple["Simulation", "Agent"] | None:
-        for sim_instance in self.sim_instances:
+        ordered_sims = [
+            sim_instance
+            for sim_instance in self.sim_instances
+            if not getattr(sim_instance, "game_over", False)
+        ]
+        ordered_sims.extend(
+            sim_instance
+            for sim_instance in self.sim_instances
+            if getattr(sim_instance, "game_over", False)
+        )
+
+        for sim_instance in ordered_sims:
             agents = getattr(sim_instance, "agents", [])
             for agent in agents:
                 if agent.public_key == agent_public_key:

@@ -114,14 +114,16 @@ function render() {
 
   const agent = simState.agent || {};
   els.modeLabel.textContent = state.mode === "live" ? "Live Sight" : "Replay";
-  els.simTitle.textContent = `${shortKey(simState.sim_id)} · ${simState.temp}C`;
+  els.simTitle.textContent = `${shortKey(simState.sim_id)} · ${simState.phase || "day"} · ${simState.temp}C`;
   els.agentName.textContent = `A${agent.id ?? "?"}`;
   els.tick.textContent = `tick ${simState.tick ?? 0}`;
   els.actionBudget.textContent = `budget ${agent.action_budget ?? "?"}`;
   els.timeline.max = Math.max(0, state.mode === "history" ? state.ticks.length - 1 : simState.sim_status?.max_ticks || 0);
   els.timeline.value = state.mode === "history" ? state.replayIndex : simState.tick || 0;
   els.timeline.disabled = state.mode !== "history";
-  els.timelineLabel.textContent = state.mode === "history" ? `frame ${state.replayIndex + 1}/${state.ticks.length}` : "now";
+  const frame = state.mode === "history" ? state.ticks[state.replayIndex] : null;
+  const frameKind = frame?.kind ? ` · ${frame.kind}` : "";
+  els.timelineLabel.textContent = state.mode === "history" ? `frame ${state.replayIndex + 1}/${state.ticks.length}${frameKind}` : "now";
   els.playButton.disabled = state.mode !== "history" || state.ticks.length <= 1;
   els.playButton.textContent = state.playing ? "Pause" : "Play";
 
@@ -253,11 +255,11 @@ function renderChat(chats) {
 function renderHistory() {
   els.historyCount.textContent = `${state.history.length} sims`;
   els.history.innerHTML = [
-    state.live?.state ? `<button class="history-item ${state.mode === "live" ? "active" : ""}" id="liveSelect"><strong>Live</strong><span class="muted">${shortKey(state.live.state.sim_id)} · tick ${state.live.state.tick}</span></button>` : "",
+    state.live?.state ? `<button class="history-item ${state.mode === "live" ? "active" : ""}" id="liveSelect"><strong>Live</strong><span class="muted">${shortKey(state.live.state.sim_id)} · tick ${state.live.state.tick} · ${state.live.state.phase || "day"}</span></button>` : "",
     ...state.history.map((sim) => `
       <button class="history-item ${state.mode === "history" && state.selectedId === sim.sim_id ? "active" : ""}" data-sim="${sim.sim_id}">
         <strong>${shortKey(sim.sim_id)}</strong>
-        <span class="muted">${sim.status} · ${new Date(sim.updated_at * 1000).toLocaleTimeString()}</span>
+        <span class="muted">${sim.status} · ${sim.summary?.phase || "day"} · ${new Date(sim.updated_at * 1000).toLocaleTimeString()}</span>
       </button>
     `),
   ].join("") || `<div class="muted">No stored states yet.</div>`;

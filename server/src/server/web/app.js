@@ -108,7 +108,7 @@ function renderLiveList() {
   els.liveSims.innerHTML = sims.length ? sims.map((sim) => `
     <button class="item ${state.mode === "live" && state.selectedId === sim.sim_id ? "active" : ""}" data-live="${sim.sim_id}">
       <strong>${shortKey(sim.sim_id)}</strong>
-      <span class="muted">tick ${sim.tick} · ${sim.alive_count}/${sim.agents.length} alive · ${sim.temp}C</span>
+      <span class="muted">tick ${sim.tick} · ${sim.phase || "day"} · ${sim.alive_count}/${sim.agents.length} alive · ${sim.temp}C</span>
     </button>
   `).join("") : `<div class="muted">No active simulations.</div>`;
   els.liveSims.querySelectorAll("[data-live]").forEach((node) => {
@@ -123,7 +123,7 @@ function renderArchiveList() {
     return `
       <button class="item ${state.mode === "archive" && state.selectedId === sim.sim_id ? "active" : ""}" data-archive="${sim.sim_id}">
         <strong>${shortKey(sim.sim_id)}</strong>
-        <span class="muted">${sim.status} · tick ${summary.tick ?? "?"} · ${new Date(sim.updated_at * 1000).toLocaleTimeString()}</span>
+        <span class="muted">${sim.status} · tick ${summary.tick ?? "?"} · ${summary.phase || "day"} · ${new Date(sim.updated_at * 1000).toLocaleTimeString()}</span>
       </button>
     `;
   }).join("") : `<div class="muted">No stored simulations yet.</div>`;
@@ -145,8 +145,10 @@ function render() {
   }
 
   els.modeLabel.textContent = state.mode === "live" ? "Live View" : "Replay";
-  els.simTitle.textContent = `${shortKey(snapshot.sim_id)} · tick ${snapshot.tick}`;
-  els.tickLabel.textContent = `tick ${snapshot.tick}`;
+  const frame = state.mode === "archive" ? state.ticks[state.replayIndex] : null;
+  const frameKind = frame?.kind ? ` · ${frame.kind}` : "";
+  els.simTitle.textContent = `${shortKey(snapshot.sim_id)} · tick ${snapshot.tick} · ${snapshot.phase || "day"}`;
+  els.tickLabel.textContent = `tick ${snapshot.tick}${frameKind}`;
   els.timeline.max = Math.max(0, state.mode === "archive" ? state.ticks.length - 1 : snapshot.max_ticks || 0);
   els.timeline.value = state.mode === "archive" ? state.replayIndex : snapshot.tick || 0;
   els.timeline.disabled = state.mode !== "archive";
