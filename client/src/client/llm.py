@@ -8,6 +8,7 @@ from typing import Any
 from urllib import error, request
 
 from . import config
+from common.logging_config import demo_log
 
 
 logger = logging.getLogger(__name__)
@@ -159,6 +160,16 @@ def get_plan_response(prompt: str) -> dict[str, Any]:
         base_url = config.OLLAMA_BASE_URL.rstrip("/")
         estimated_prompt_tokens = _estimate_tokens(prompt)
         estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_PLAN_RESPONSE_TOKENS
+        demo_log(
+            logger,
+            "LLM talk call: model=%s prompt_chars=%s est_tokens=%s ctx=%s response_tokens=%s fits=%s",
+            config.OLLAMA_MODEL,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_CONTEXT_LENGTH,
+            config.OLLAMA_PLAN_RESPONSE_TOKENS,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
         logger.info(
             "ollama plan request model=%s base_url=%s think=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
             config.OLLAMA_MODEL,
@@ -176,7 +187,7 @@ def get_plan_response(prompt: str) -> dict[str, Any]:
         response = _post_json(
             f"{base_url}/api/chat",
             payload,
-            stream_label="Plan",
+            stream_label="Talk",
             display_content=config.OLLAMA_STREAM_JSON_LOG,
         )
         elapsed = time.monotonic() - start_time
@@ -185,17 +196,27 @@ def get_plan_response(prompt: str) -> dict[str, Any]:
         parsed = _parse_json_content(content)
         normalized = normalize_plan_response(parsed)
         normalized["reasoning"] = reasoning
+        usage = _usage_summary(response)
+        demo_log(
+            logger,
+            "LLM talk done: elapsed=%.2fs messages=%s response_tokens=%s tps=%s done=%s",
+            elapsed,
+            len(normalized["messages"]),
+            usage.get("response_tokens"),
+            usage.get("tokens_per_second"),
+            usage.get("done_reason"),
+        )
         logger.info(
             "ollama talk response elapsed=%.2fs model=%s messages=%s reasoning_chars=%s usage=%s",
             elapsed,
             response.get("model"),
             normalized["messages"],
             len(reasoning),
-            _usage_summary(response),
+            usage,
         )
         return normalized
     except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
-        logger.warning("ollama plan request failed, skipping plan chat: %s", exc)
+        logger.warning("ollama talk request failed, skipping talk phase chat: %s", exc)
         return {"messages": [], "reasoning": ""}
 
 
@@ -205,6 +226,16 @@ def get_summary_response(prompt: str) -> dict[str, str]:
         base_url = config.OLLAMA_BASE_URL.rstrip("/")
         estimated_prompt_tokens = _estimate_tokens(prompt)
         estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_SUMMARY_RESPONSE_TOKENS
+        demo_log(
+            logger,
+            "LLM summary call: model=%s prompt_chars=%s est_tokens=%s ctx=%s response_tokens=%s fits=%s",
+            config.OLLAMA_MODEL,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_CONTEXT_LENGTH,
+            config.OLLAMA_SUMMARY_RESPONSE_TOKENS,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
         logger.info(
             "ollama summary request model=%s base_url=%s think=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
             config.OLLAMA_MODEL,
@@ -228,12 +259,22 @@ def get_summary_response(prompt: str) -> dict[str, str]:
         content = _extract_chat_content(response)
         parsed = _parse_json_content(content)
         normalized = normalize_summary_response(parsed)
+        usage = _usage_summary(response)
+        demo_log(
+            logger,
+            "LLM summary done: elapsed=%.2fs summary_chars=%s response_tokens=%s tps=%s done=%s",
+            elapsed,
+            len(normalized["summary"]),
+            usage.get("response_tokens"),
+            usage.get("tokens_per_second"),
+            usage.get("done_reason"),
+        )
         logger.info(
             "ollama summary response elapsed=%.2fs model=%s summary_chars=%s usage=%s",
             elapsed,
             response.get("model"),
             len(normalized["summary"]),
-            _usage_summary(response),
+            usage,
         )
         return normalized
     except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
@@ -247,6 +288,16 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
         base_url = config.OLLAMA_BASE_URL.rstrip("/")
         estimated_prompt_tokens = _estimate_tokens(prompt)
         estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_RESPONSE_TOKENS
+        demo_log(
+            logger,
+            "LLM action call: model=%s prompt_chars=%s est_tokens=%s ctx=%s response_tokens=%s fits=%s",
+            config.OLLAMA_MODEL,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_CONTEXT_LENGTH,
+            config.OLLAMA_RESPONSE_TOKENS,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
         logger.info(
             "ollama request model=%s base_url=%s think=%s options=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
             config.OLLAMA_MODEL,
@@ -275,6 +326,17 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
         parsed = _parse_json_content(content)
         normalized = normalize_llm_response(parsed)
         normalized["reasoning"] = reasoning
+        usage = _usage_summary(response)
+        demo_log(
+            logger,
+            "LLM action done: elapsed=%.2fs actions=%s messages=%s response_tokens=%s tps=%s done=%s",
+            elapsed,
+            len(normalized["actions"]),
+            len(normalized["messages"]),
+            usage.get("response_tokens"),
+            usage.get("tokens_per_second"),
+            usage.get("done_reason"),
+        )
         logger.info(
             "ollama response elapsed=%.2fs model=%s actions=%s messages=%s reasoning_chars=%s usage=%s",
             elapsed,
@@ -282,7 +344,7 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
             normalized["actions"],
             normalized["messages"],
             len(reasoning),
-            _usage_summary(response),
+            usage,
         )
         if reasoning:
             logger.info("ollama reasoning\n%s", reasoning)
@@ -301,6 +363,16 @@ def get_chat_response(prompt: str) -> dict[str, str]:
         base_url = config.OLLAMA_BASE_URL.rstrip("/")
         estimated_prompt_tokens = _estimate_tokens(prompt)
         estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_CHAT_RESPONSE_TOKENS
+        demo_log(
+            logger,
+            "LLM direct-chat call: model=%s prompt_chars=%s est_tokens=%s ctx=%s response_tokens=%s fits=%s",
+            config.OLLAMA_MODEL,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_CONTEXT_LENGTH,
+            config.OLLAMA_CHAT_RESPONSE_TOKENS,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
         logger.info(
             "ollama chat request model=%s base_url=%s think=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
             config.OLLAMA_MODEL,
@@ -325,13 +397,23 @@ def get_chat_response(prompt: str) -> dict[str, str]:
         elapsed = time.monotonic() - start_time
         content = _normalize_chat_content(_extract_chat_content(response))
         reasoning = _extract_chat_reasoning(response)
+        usage = _usage_summary(response)
+        demo_log(
+            logger,
+            "LLM direct-chat done: elapsed=%.2fs reply_chars=%s response_tokens=%s tps=%s done=%s",
+            elapsed,
+            len(content),
+            usage.get("response_tokens"),
+            usage.get("tokens_per_second"),
+            usage.get("done_reason"),
+        )
         logger.info(
             "ollama chat response elapsed=%.2fs model=%s reply_chars=%s reasoning_chars=%s usage=%s",
             elapsed,
             response.get("model"),
             len(content),
             len(reasoning),
-            _usage_summary(response),
+            usage,
         )
         if reasoning:
             logger.info("ollama chat reasoning\n%s", reasoning)

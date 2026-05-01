@@ -3,6 +3,7 @@ import json
 import logging
 
 from common import axl
+from common.logging_config import demo_log
 from common.protocol import (
     MESSAGE_TYPE_AGENT_ACTION,
     MESSAGE_TYPE_AGENT_MSG,
@@ -55,6 +56,13 @@ async def handle_message(sender, msg, state: State):
         handle_agent_action(sender, msg, state)
     elif message_type == MESSAGE_TYPE_AGENT_MSG:
         logger.info("received AGENT_MSG on server sender=%s content=%s", sender, msg.get("content"))
+        content = msg.get("content")
+        if isinstance(content, dict):
+            text = content.get("message") or content.get("content") or ""
+        else:
+            text = content or ""
+        if isinstance(text, str) and text.strip():
+            demo_log(logger, "Chat %s -> server: %s", sender[:8], _one_line(text, 240))
     else:
         logger.warning("unknown message type sender=%s type=%s", sender, message_type)
 
@@ -167,3 +175,10 @@ async def recv_loop(state: State):
 
         sender, msg = received
         await handle_message(sender, msg, state)
+
+
+def _one_line(text: str, limit: int) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."

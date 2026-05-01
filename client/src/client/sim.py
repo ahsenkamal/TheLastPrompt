@@ -57,6 +57,13 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
         if message_type == config.MESSAGE_TYPE_AGENT_MSG:
             agent_message = _queue_agent_message(pending_agent_messages, sender, msg)
             if agent_message is not None:
+                demo_log(
+                    logger,
+                    "%s -> You: %s",
+                    _chat_peer_label(state, agent_message["from"]),
+                    _one_line(agent_message["message"], 240),
+                )
+            if agent_message is not None:
                 _append_chat_context(
                     recent_agent_messages,
                     {
@@ -128,21 +135,21 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             demo_log(logger, results_block)
             return
 
-        plan_result = _run_plan_phase(
+        talk_result = _run_talk_phase(
             state,
             self_public_key,
             turn_messages,
             recent_agent_messages,
             runtime,
         )
-        deferred_received = plan_result.get("deferred_received")
+        deferred_received = talk_result.get("deferred_received")
         if deferred_received is not None:
             continue
 
         state.set_agent_messages(
             [],
             [],
-            _talk_phase_context(plan_result, state),
+            _talk_phase_context(talk_result, state),
         )
 
         # create prompt for user
@@ -169,18 +176,20 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             llm_response,
             state,
             self_public_key,
-            action_budget=plan_result["action_budget"],
-            allow_talk=not config.PLAN_PHASE_ENABLED,
-            prefix_actions=plan_result["actions"],
+            action_budget=talk_result["action_budget"],
+            allow_talk=not config.TALK_PHASE_ENABLED,
+            prefix_actions=talk_result["actions"],
+            talk_budget=talk_result["talk_budget"],
+            talk_budget_spent=talk_result["talk_budget_spent"],
         )
         accepted = {
             "actions": action_accepted["actions"],
-            "messages": plan_result["messages"] + action_accepted["messages"],
-            "talk_summary": plan_result["talk_summary"],
+            "messages": talk_result["messages"] + action_accepted["messages"],
+            "talk_summary": talk_result["talk_summary"],
             "phase_budgets": {
-                "plan_talk_budget": plan_result["plan_talk_budget"],
-                "plan_budget_spent": plan_result["plan_budget_spent"],
-                "action_budget": plan_result["action_budget"],
+                "talk_budget": talk_result["talk_budget"],
+                "talk_budget_spent": talk_result["talk_budget_spent"],
+                "action_budget": talk_result["action_budget"],
             },
         }
         for message in action_accepted["messages"]:
@@ -267,7 +276,11 @@ def _append_chat_context(chat_context: list[dict[str, Any]], message: dict[str, 
         del chat_context[:-config.CHAT_CONTEXT_LIMIT]
 
 
-def _run_plan_phase(
+def _estimate_tokens(text: str) -> int:
+    return max(1, (len(text) + 3) // 4)
+
+
+def _run_talk_phase(
     state: State,
     self_public_key: str,
     turn_messages: list[dict[str, Any]],
@@ -275,31 +288,50 @@ def _run_plan_phase(
     runtime: Any | None,
 ) -> dict[str, Any]:
     action_budget = _agent_action_budget(state)
-    plan_talk_budget = max(0.0, config.PLAN_TALK_BUDGET)
+    talk_budget_limit = max(0.0, config.TALK_BUDGET)
     result: dict[str, Any] = {
         "talk_summary": "",
         "actions": [],
         "messages": [],
-        "plan_talk_budget": plan_talk_budget,
-        "plan_budget_spent": 0.0,
+        "talk_budget": talk_budget_limit,
+        "talk_budget_spent": 0.0,
         "action_budget": action_budget,
         "deferred_received": None,
     }
 
-    if not config.PLAN_PHASE_ENABLED or plan_talk_budget <= 0:
+    talk_recipients = _valid_talk_recipients(state)
+    demo_log(
+        logger,
+        "Talk phase: enabled=%s recipients=%s budget=%.2f seconds=%.0f incoming=%s recent=%s",
+        config.TALK_PHASE_ENABLED,
+        len(talk_recipients),
+        talk_budget_limit,
+        config.TALK_PHASE_SECONDS,
+        len(turn_messages),
+        len(recent_agent_messages),
+    )
+
+    if not config.TALK_PHASE_ENABLED:
+        demo_log(logger, "Talk phase skipped: disabled")
+        return result
+    if talk_budget_limit <= 0:
+        demo_log(logger, "Talk phase skipped: talk budget is 0")
         return result
 
     phase_messages = list(turn_messages)
-    talk_recipients = _valid_talk_recipients(state)
     if not talk_recipients and not turn_messages:
+        demo_log(logger, "Talk phase skipped: no visible talk recipients and no incoming messages")
         return result
 
-    plan_prompt = _plan_phase_prompt(state, turn_messages, recent_agent_messages, plan_talk_budget)
-    plan_response = get_plan_response(plan_prompt)
-    plan_messages = _filter_plan_messages(plan_response.get("messages", []), state, plan_talk_budget)
+    talk_prompt = _talk_phase_prompt(state, turn_messages, recent_agent_messages, talk_budget_limit)
+    demo_log(logger, "Talk LLM prompt: chars=%s est_tokens=%s", len(talk_prompt), _estimate_tokens(talk_prompt))
+    talk_response = get_plan_response(talk_prompt)
+    talk_messages = _filter_talk_messages(talk_response.get("messages", []), state, talk_budget_limit)
+    if not talk_messages:
+        demo_log(logger, "Talk phase: LLM chose no messages")
 
     sent_recipients = set()
-    for message in plan_messages:
+    for message in talk_messages:
         recipient = message["recipient"]
         if recipient in sent_recipients:
             continue
@@ -307,10 +339,10 @@ def _run_plan_phase(
         action = {"action": "talk_to", "target": recipient}
         result["actions"].append(action)
 
-    for message in plan_messages:
+    for message in talk_messages:
         demo_log(
             logger,
-            "Plan -> %s: %s",
+            "You -> %s: %s",
             _agent_label_from_public_key(state, message["recipient"]),
             _one_line(message["content"], 240),
         )
@@ -338,15 +370,15 @@ def _run_plan_phase(
                 "outgoing",
                 message["recipient"],
                 message["content"],
-                {"mode": "plan_phase"},
+                {"mode": "talk_phase"},
             )
 
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
-    result["messages"] = plan_messages
-    result["plan_budget_spent"] = min(plan_talk_budget, len(sent_recipients) * talk_budget)
+    result["messages"] = talk_messages
+    result["talk_budget_spent"] = min(talk_budget_limit, len(sent_recipients) * talk_budget)
 
-    if plan_messages and config.TALK_PHASE_SECONDS > 0:
-        result["deferred_received"] = _collect_plan_replies(
+    if talk_messages and config.TALK_PHASE_SECONDS > 0:
+        result["deferred_received"] = _collect_talk_replies(
             state,
             turn_messages,
             recent_agent_messages,
@@ -361,17 +393,17 @@ def _run_plan_phase(
     return result
 
 
-def _talk_phase_context(plan_result: dict[str, Any], state: State) -> dict[str, Any]:
+def _talk_phase_context(talk_result: dict[str, Any], state: State) -> dict[str, Any]:
     return {
-        "summary": plan_result.get("talk_summary", ""),
-        "sent_messages_count": len(plan_result.get("messages", [])),
-        "plan_talk_budget": plan_result.get("plan_talk_budget", 0),
-        "plan_budget_spent": plan_result.get("plan_budget_spent", 0),
-        "action_budget": plan_result.get("action_budget", _agent_action_budget(state)),
+        "summary": talk_result.get("talk_summary", ""),
+        "sent_messages_count": len(talk_result.get("messages", [])),
+        "talk_budget": talk_result.get("talk_budget", 0),
+        "talk_budget_spent": talk_result.get("talk_budget_spent", 0),
+        "action_budget": talk_result.get("action_budget", _agent_action_budget(state)),
     }
 
 
-def _collect_plan_replies(
+def _collect_talk_replies(
     state: State,
     turn_messages: list[dict[str, Any]],
     recent_agent_messages: list[dict[str, Any]],
@@ -392,7 +424,7 @@ def _collect_plan_replies(
 
         if msg.get("protocol_version") != config.PROTOCOL_VERSION:
             logger.warning(
-                "received unsupported protocol during plan sender=%s version=%s",
+                "received unsupported protocol during talk phase sender=%s version=%s",
                 sender,
                 msg.get("protocol_version"),
             )
@@ -434,16 +466,16 @@ def _collect_plan_replies(
                 "incoming",
                 agent_message["from"],
                 agent_message["message"],
-                {"mode": "plan_phase"},
+                {"mode": "talk_phase"},
             )
     return None
 
 
-def _plan_phase_prompt(
+def _talk_phase_prompt(
     state: State,
     turn_messages: list[dict[str, Any]],
     recent_agent_messages: list[dict[str, Any]],
-    plan_talk_budget: float,
+    talk_budget_limit: float,
 ) -> str:
     agent = _agent_state(state)
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
@@ -453,7 +485,7 @@ def _plan_phase_prompt(
             f"Tick: {state.tick}",
             f"Phase: {state.sim_state.get('phase', 'day')}",
             f"Temperature: {_number(state.sim_state.get('temp'))}C",
-            f"Plan talk budget: {plan_talk_budget:.2f}; talk_to cost: {talk_budget:.2f}; max messages: {config.MAX_PLAN_MESSAGES_PER_TICK}",
+            f"Talk budget: {talk_budget_limit:.2f}; talk_to cost: {talk_budget:.2f}; max messages: {config.MAX_TALK_MESSAGES_PER_TICK}",
             "Action choices are decided later; this phase only sends chat.",
             (
                 f"You: {_agent_label(agent)} at {_position_text(agent.get('position'))}; "
@@ -531,25 +563,25 @@ def _chat_messages_text(messages: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _filter_plan_messages(
+def _filter_talk_messages(
     messages: list[dict[str, Any]],
     state: State,
-    plan_talk_budget: float,
+    talk_budget_limit: float,
 ) -> list[dict[str, str]]:
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
-    max_by_budget = int(plan_talk_budget // max(talk_budget, 0.0001))
-    max_messages = max(0, min(config.MAX_PLAN_MESSAGES_PER_TICK, max_by_budget))
+    max_by_budget = int(talk_budget_limit // max(talk_budget, 0.0001))
+    max_messages = max(0, min(config.MAX_TALK_MESSAGES_PER_TICK, max_by_budget))
     if max_messages <= 0:
         return []
 
     valid_recipients = _valid_talk_recipients(state)
     selected = []
     seen_recipients = set()
-    for raw_message in messages[: config.MAX_PLAN_MESSAGES_PER_TICK]:
+    for raw_message in messages[: config.MAX_TALK_MESSAGES_PER_TICK]:
         recipient = raw_message.get("recipient")
         content = raw_message.get("content")
         if not isinstance(recipient, str) or recipient not in valid_recipients:
-            logger.warning("skipping plan message without valid talk recipient raw_message=%s", raw_message)
+            logger.warning("skipping talk message without valid talk recipient raw_message=%s", raw_message)
             continue
         if recipient in seen_recipients:
             continue
@@ -575,6 +607,8 @@ def _send_llm_response(
     action_budget: float | None = None,
     allow_talk: bool = True,
     prefix_actions: list[dict[str, Any]] | None = None,
+    talk_budget: float | None = None,
+    talk_budget_spent: float = 0.0,
 ) -> dict[str, Any]:
     prefix_actions = list(prefix_actions or [])
     actions = _filter_actions(
@@ -592,7 +626,12 @@ def _send_llm_response(
     actions = _talk_actions_first(prefix_actions + actions)
     tick = state.tick
     logger.info("accepted actions tick=%s actions=%s", tick, actions)
-    demo_log(logger, "Decision: %s", _demo_actions(actions, state))
+    available_action_budget = _agent_action_budget(state) if action_budget is None else action_budget
+    action_budget_used = _action_budget_used(actions, state, include_talk=allow_talk)
+    budget_text = f"action budget {action_budget_used:.2f}/{available_action_budget:.2f}"
+    if talk_budget is not None:
+        budget_text = f"{budget_text} | talk budget {talk_budget_spent:.2f}/{talk_budget:.2f}"
+    demo_log(logger, "Decision: %s | %s", _demo_actions(actions, state), budget_text)
 
     talk_recipients = _talk_recipients(actions)
     accepted_messages = _filter_agent_messages(llm_response.get("messages", []), talk_recipients) if allow_talk else []
@@ -673,6 +712,19 @@ def _filter_actions(
         remaining_budget -= budget
 
     return selected_actions
+
+
+def _action_budget_used(actions: list[dict[str, Any]], state: State, *, include_talk: bool) -> float:
+    valid_action_specs = _valid_action_specs(state.get_valid_actions())
+    used = 0.0
+    for action in actions:
+        action_name = action.get("action")
+        if not include_talk and action_name == "talk_to":
+            continue
+        spec = valid_action_specs.get(action_name)
+        if spec is not None:
+            used += float(spec.get("budget", 0.0))
+    return used
 
 
 def _valid_action_specs(valid_actions: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -1019,12 +1071,32 @@ def _demo_state_block(state: State) -> str:
     ]
 
     if state.agent_messages:
-        lines.append("Chat:")
+        lines.append("Incoming chat:")
         for message in state.agent_messages:
             lines.append(
-                f"{_agent_label_from_public_key(state, message.get('from'))}: "
+                f"{_chat_peer_label(state, message.get('from'))} -> You: "
                 f"{_one_line(str(message.get('message', '')), 240)}"
             )
+
+    recent_messages = [
+        message
+        for message in state.recent_agent_messages[-config.CHAT_CONTEXT_LIMIT:]
+        if message not in state.agent_messages
+    ]
+    if recent_messages:
+        lines.append("Recent chat:")
+        for message in recent_messages:
+            direction = message.get("direction")
+            if direction == "outgoing":
+                lines.append(
+                    f"You -> {_chat_peer_label(state, message.get('to'))}: "
+                    f"{_one_line(str(message.get('message', '')), 180)}"
+                )
+            else:
+                lines.append(
+                    f"{_chat_peer_label(state, message.get('from'))} -> You: "
+                    f"{_one_line(str(message.get('message', '')), 180)}"
+                )
 
     return "\n".join(lines)
 
@@ -1179,6 +1251,16 @@ def _agent_label_from_public_key(state: State, public_key: Any) -> str:
         for occupant in tile.get("occupants", []):
             if isinstance(occupant, dict) and occupant.get("public_key") == public_key:
                 return _agent_label(occupant)
+    return "A?"
+
+
+def _chat_peer_label(state: State | None, public_key: Any) -> str:
+    if state is not None:
+        label = _agent_label_from_public_key(state, public_key)
+        if label != "A?":
+            return label
+    if isinstance(public_key, str) and public_key:
+        return public_key[:8]
     return "A?"
 
 

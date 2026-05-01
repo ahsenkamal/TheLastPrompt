@@ -1,7 +1,8 @@
-from time import sleep
+from time import monotonic, sleep
 from typing import Any
 import logging
 import random
+import sys
 
 from .map import Map, Tile
 from .types import *
@@ -9,7 +10,7 @@ from .agent import Agent
 from .action import Action, ActionType, execute_action, valid_action
 from .coordinator import send_states_to_agents
 from common.replay_store import ReplayStore
-from common.logging_config import color_delta, demo_log
+from common.logging_config import color_delta, demo_log, is_demo_logging
 from server.config import REPLAY_DB_PATH, SIM_MAX_TICKS, TICK_TIMEOUT_SECONDS
 
 
@@ -73,9 +74,7 @@ class Simulation:
 
         # create state prompt for agents and send it
         send_states_to_agents(self)
-        # sleep for 1 min
-        logger.info("waiting for actions sim_id=%s tick=%s seconds=%s", self.id, self.iteration, TICK_TIMEOUT_SECONDS)
-        sleep(TICK_TIMEOUT_SECONDS)
+        self._wait_for_actions()
         # actions must have been received... continue with processing
 
         self.pending_trade_offers = []
@@ -124,6 +123,28 @@ class Simulation:
             agent.id: _agent_snapshot(agent)
             for agent in self.agents
         }
+
+    def _wait_for_actions(self):
+        wait_seconds = max(0.0, TICK_TIMEOUT_SECONDS)
+        logger.info("waiting for actions sim_id=%s tick=%s seconds=%s", self.id, self.iteration, wait_seconds)
+        if wait_seconds <= 0:
+            return
+
+        if not is_demo_logging():
+            sleep(wait_seconds)
+            return
+
+        deadline = monotonic() + wait_seconds
+        label = f"Waiting for actions | sim {self.id[:8]} tick {self.iteration}"
+        while True:
+            remaining = max(0.0, deadline - monotonic())
+            sys.stdout.write(f"\r{label} | {remaining:5.1f}s left")
+            sys.stdout.flush()
+            if remaining <= 0:
+                break
+            sleep(min(0.25, remaining))
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
     def record_action(self, agent: Agent, action: Action):
@@ -420,7 +441,14 @@ class Simulation:
                     self.enforce_agent_bounds(other_agent)
             after = _agent_snapshot(agent)
             self._persist_action(agent, action, before, after)
-            demo_log(logger, _demo_action_line(self, agent, action))
+            budget_used = max(0.0, agent.action_budget - remaining_budget)
+            demo_log(
+                logger,
+                "%s | budget %.2f/%.2f",
+                _demo_action_line(self, agent, action),
+                budget_used,
+                agent.action_budget,
+            )
             logger.info(
                 "action result sim_id=%s tick=%s agent=%s before=%s after=%s remaining_budget=%.2f",
                 self.id,
@@ -438,9 +466,9 @@ class Simulation:
                 self.iteration,
                 agent.id,
             )
-            demo_log(logger, "%s waits", _agent_label(agent))
+            demo_log(logger, "%s waits | budget 0.00/%.2f", _agent_label(agent), agent.action_budget)
         elif not actions:
-            demo_log(logger, "%s waits", _agent_label(agent))
+            demo_log(logger, "%s waits | budget 0.00/%.2f", _agent_label(agent), agent.action_budget)
 
     def base_effects(self, agent: Agent):
         if not agent.alive:
