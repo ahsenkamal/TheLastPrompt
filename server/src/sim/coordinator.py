@@ -48,6 +48,7 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
     return {
         "sim_id": sim.id,
         "tick": sim.iteration,
+        "phase": getattr(sim, "phase", "day"),
         "temp": sim.temp,
         "sim_status": {
             "game_over": game_over,
@@ -72,6 +73,7 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
             "strength": agent.strength,
             "stance": agent.stance,
             "status": list(agent.status),
+            "status_since": dict(agent.status_since),
             "action_budget": agent.action_budget,
             "inventory_weight": agent.inventory_weight,
             "carry_capacity": agent.carry_capacity,
@@ -154,6 +156,8 @@ def _condition_tags(agent: Agent) -> list[str]:
         tags.append("cold")
     if agent.mental_health < 45:
         tags.append("stressed")
+    if "sick" in agent.status:
+        tags.append("sick")
     return tags or ["stable"]
 
 

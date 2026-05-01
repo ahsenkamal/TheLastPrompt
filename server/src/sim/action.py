@@ -544,6 +544,9 @@ def _rest(agent: "Agent") -> None:
 
 def _sleep(sim: "Simulation", agent: "Agent") -> None:
     agent.mental_health = min(100, agent.mental_health + 15)
+    if _sim_phase(sim) == "night":
+        agent.mental_health = min(100, agent.mental_health + 8)
+        agent.warmth = min(100, agent.warmth + 3)
 
     current_tile = _current_tile(sim, agent)
     has_shelter = agent.public_key in getattr(current_tile, "shelters", {})
@@ -587,6 +590,7 @@ def _heal(agent: "Agent", action: Action) -> None:
 
     health_gain = 50 if resource == ResourceType.HEAVY_MEDS else 20
     agent.health = min(100, agent.health + health_gain)
+    agent.remove_status("sick")
 
 
 def _warmup(agent: "Agent", action: Action) -> None:
@@ -595,6 +599,8 @@ def _warmup(agent: "Agent", action: Action) -> None:
         return
 
     warmth_gain = 30 if resource == ResourceType.FUEL else 20
+    if _has_resource(agent, ResourceType.CLOTHING):
+        warmth_gain += 5
     agent.warmth = min(100, agent.warmth + warmth_gain)
 
 
@@ -607,10 +613,9 @@ def _change_stance(agent: "Agent", action: Action) -> None:
 
 def _change_status(agent: "Agent", action: Action) -> None:
     if action.target == "guarding":
-        if "guarding" not in agent.status:
-            agent.status.append("guarding")
-    elif action.target == "normal" and "guarding" in agent.status:
-        agent.status.remove("guarding")
+        agent.add_status("guarding")
+    elif action.target == "normal":
+        agent.remove_status("guarding")
 
 
 def _move(sim: "Simulation", agent: "Agent", action: Action) -> None:
@@ -635,6 +640,12 @@ def _move(sim: "Simulation", agent: "Agent", action: Action) -> None:
     agent.pos_x = x
     agent.pos_y = y
     agent.update_visible_tiles()
+
+    load_pressure = _load_pressure(agent)
+    agent.hunger = min(100, agent.hunger + 1 + load_pressure * 3)
+    agent.thirst = min(100, agent.thirst + 1 + load_pressure * 4)
+    if load_pressure > 0:
+        agent.mental_health = max(0, agent.mental_health - load_pressure)
 
 
 def _create_shelter(sim: "Simulation", agent: "Agent", action: Action) -> None:
@@ -884,7 +895,15 @@ def _trade(sim: "Simulation", agent: "Agent", action: Action) -> None:
 
 
 def _apply_attack(sim: "Simulation", attacker: "Agent", defender: "Agent") -> None:
-    damage = max(5, int((attacker.strength / 10) + sim.rng.randint(0, 12)))
+    attack_roll = (attacker.strength / 10) + _weapon_bonus(attacker) + sim.rng.randint(0, 12)
+    if attacker.mental_health < 20 and sim.rng.random() < 0.25:
+        attack_roll *= 0.5
+        attacker.mental_health = max(0, attacker.mental_health - 2)
+
+    damage = max(5, int(attack_roll))
+    if "guarding" in defender.status:
+        damage = max(3, int(damage * 0.65))
+
     defender.health -= damage
     defender.mental_health = max(0, defender.mental_health - 5)
     _adjust_relation(defender.grudges, attacker.id, 12)
@@ -938,6 +957,25 @@ def _positive_inventory_resources(agent: "Agent") -> list[ResourceType]:
         for resource, amount in agent.inventory.items()
         if amount > 0
     ]
+
+
+def _weapon_bonus(agent: "Agent") -> float:
+    if _has_resource(agent, ResourceType.WEAPON_GUN) and _has_resource(agent, ResourceType.AMMO):
+        _consume_resource(agent, ResourceType.AMMO)
+        return 18.0
+    if _has_resource(agent, ResourceType.WEAPON_BOW) and _has_resource(agent, ResourceType.AMMO):
+        _consume_resource(agent, ResourceType.AMMO)
+        return 10.0
+    if _has_resource(agent, ResourceType.WEAPON_KNIFE):
+        return 5.0
+    return 0.0
+
+
+def _load_pressure(agent: "Agent") -> float:
+    if agent.carry_capacity <= 0:
+        return 0.0
+    load_ratio = agent.inventory_weight / agent.carry_capacity
+    return max(0.0, min(1.0, (load_ratio - 0.65) / 0.35))
 
 
 def _choose_resource(
@@ -1013,6 +1051,13 @@ def _record_event(
     record_event = getattr(sim, "record_event", None)
     if callable(record_event):
         record_event(message, event_type=event_type, x=x, y=y)
+
+
+def _sim_phase(sim: "Simulation") -> str:
+    phase = getattr(sim, "phase", None)
+    if isinstance(phase, str):
+        return phase
+    return "day"
 
 
 def _canonical_value(value: Any) -> Any:

@@ -63,6 +63,7 @@ class Agent:
         self.strength = 33
         self.stance = "normal"
         self.status: list[str] = []
+        self.status_since: dict[str, int] = {}
         self.action_budget = 1.0
         self.actions: dict[int, list[Action]] = {}
         self.actions_lock = Lock()
@@ -83,9 +84,29 @@ class Agent:
         self.mental_health = _clamp(self.mental_health)
         self.warmth = _clamp(self.warmth)
         self.reputation = _clamp(self.reputation)
+        self.status = list(dict.fromkeys(self.status))
+        for status in list(self.status_since):
+            if status not in self.status:
+                self.status_since.pop(status, None)
         for relation in (self.trust, self.grudges):
             for agent_id, value in list(relation.items()):
                 relation[agent_id] = _clamp(value)
+
+    def add_status(self, status: str, iteration: int | None = None):
+        if status not in self.status:
+            self.status.append(status)
+        if iteration is not None:
+            self.status_since.setdefault(status, iteration)
+
+    def remove_status(self, status: str):
+        self.status = [item for item in self.status if item != status]
+        self.status_since.pop(status, None)
+
+    def status_age(self, status: str, iteration: int) -> int:
+        started = self.status_since.get(status)
+        if started is None:
+            return 0
+        return max(0, iteration - started)
 
     def recalculate_inventory(self):
         capacity = BASE_CARRY_CAPACITY

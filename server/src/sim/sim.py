@@ -43,6 +43,10 @@ class Simulation:
         self._persist_simulation("running")
         self._persist_tick("created")
 
+    @property
+    def phase(self) -> str:
+        return _phase_for_tick(self.iteration)
+
     def run(self):
         while not self.game_over and self.iteration < self.max_ticks:
             self.tick()
@@ -175,7 +179,7 @@ class Simulation:
             return
 
         death_cause = None
-        if agent.health <= 0 or agent.warmth <= 0:
+        if agent.health <= 0:
             death_cause = _death_cause(agent) or cause
         agent.clamp_metrics()
         if death_cause is not None:
@@ -450,6 +454,7 @@ class Simulation:
         current_tile = self.map.grid[agent.pos_y][agent.pos_x]
         in_own_shelter = agent.public_key in getattr(current_tile, "shelters", {})
         hazard = getattr(current_tile, "hazard", None)
+        phase = self.phase
 
         # hunger and thirst increase
         agent.hunger = min(100, agent.hunger + 10)
@@ -479,20 +484,48 @@ class Simulation:
                 agent.warmth -= abs(self.temp) * 0.5
             else:
                 agent.warmth -= self.temp * 0.1
+            if phase == "night":
+                agent.warmth -= 2
+
+        if phase == "day":
+            agent.mental_health = min(100, agent.mental_health + 0.5)
+        if agent.inventory.get(ResourceType.CLOTHING, 0) > 0:
+            agent.warmth = min(100, agent.warmth + 1)
 
         if hazard == "snowstorm" and not in_own_shelter:
             agent.warmth -= 6
             agent.mental_health -= 2
         elif hazard == "disease_outbreak" and self.rng.random() < 0.08:
-            agent.health -= 6
-            agent.mental_health -= 2
+            was_sick = "sick" in agent.status
+            agent.add_status("sick", self.iteration)
+            if not was_sick:
+                self.record_event(
+                    f"{_agent_label(agent)} got sick",
+                    event_type="sickness",
+                    x=agent.pos_x,
+                    y=agent.pos_y,
+                )
+
+        if "sick" in agent.status:
+            agent.health -= 2
+            agent.thirst = min(100, agent.thirst + 3)
+            if agent.status_age("sick", self.iteration) >= 6 and agent.health > 50 and agent.thirst < 70:
+                if self.rng.random() < 0.25:
+                    agent.remove_status("sick")
+                    self.record_event(
+                        f"{_agent_label(agent)} recovered from sickness",
+                        event_type="recovery",
+                        x=agent.pos_x,
+                        y=agent.pos_y,
+                    )
 
         if agent.warmth < 30:
             agent.health -= (30 - agent.warmth) * 0.5
 
-        if agent.inventory_weight > agent.carry_capacity:
-            agent.thirst = min(100, agent.thirst + 2)
-            agent.hunger = min(100, agent.hunger + 2)
+        load_pressure = _load_pressure(agent)
+        if load_pressure > 0:
+            agent.thirst = min(100, agent.thirst + 2 * load_pressure)
+            agent.hunger = min(100, agent.hunger + 2 * load_pressure)
         
         self.enforce_agent_bounds(agent, _death_cause(agent) or "health_depleted")
 
@@ -598,7 +631,8 @@ class Simulation:
             tile = self._random_passable_tile()
             if tile is None:
                 return
-            event.update({"x": tile.pos_x, "y": tile.pos_y, "radius": 1})
+            radius = self.rng.randint(2, 3) if event_type == "snowstorm" else 1
+            event.update({"x": tile.pos_x, "y": tile.pos_y, "radius": radius})
         self.active_events.append(event)
 
         location = ""
@@ -646,6 +680,7 @@ class Simulation:
             "sim_id": self.id,
             "seed": self.seed,
             "tick": self.iteration,
+            "phase": self.phase,
             "temp": round(self.temp, 2),
             "game_over": self.game_over,
             "end_reason": self.end_reason,
@@ -709,6 +744,7 @@ def _agent_snapshot(agent: Agent) -> dict[str, Any]:
         "strength": agent.strength,
         "stance": agent.stance,
         "status": list(agent.status),
+        "status_since": dict(agent.status_since),
         "inventory": {
             str(resource): amount
             for resource, amount in agent.inventory.items()
@@ -905,6 +941,24 @@ def _death_cause(agent: Agent) -> str | None:
     if agent.warmth < 30:
         return "exposure"
     return "health_depleted"
+
+
+def _phase_for_tick(tick: int) -> str:
+    hour = (6 + tick * 2) % 24
+    if 5 <= hour < 11:
+        return "morning"
+    if 11 <= hour < 17:
+        return "day"
+    if 17 <= hour < 21:
+        return "evening"
+    return "night"
+
+
+def _load_pressure(agent: Agent) -> float:
+    if agent.carry_capacity <= 0:
+        return 0.0
+    load_ratio = agent.inventory_weight / agent.carry_capacity
+    return max(0.0, min(1.0, (load_ratio - 0.65) / 0.35))
 
 
 def _update_action_budget(agent: Agent):

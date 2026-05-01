@@ -465,6 +465,7 @@ def _direct_chat_prompt(state: State, agent_message: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"Tick: {state.tick}",
+            f"Phase: {state.sim_state.get('phase', 'day')}",
             f"Temperature: {_number(state.sim_state.get('temp'))}C",
             (
                 f"You: {_agent_label(agent)} at {_position_text(agent.get('position'))}; "
@@ -611,7 +612,7 @@ def _demo_state_block(state: State) -> str:
     agent = _agent_state(state)
     status = "" if agent.get("alive", True) else f" dead:{agent.get('death_cause') or '?'}"
     lines = [
-        f"Tick {state.tick} | temp {_number(state.sim_state.get('temp'))}C",
+        f"Tick {state.tick} | {state.sim_state.get('phase', 'day')} | temp {_number(state.sim_state.get('temp'))}C",
         (
             f"You are {_agent_label(agent)} at {_position_text(agent.get('position'))} | "
             f"hp={_number(agent.get('health'))} "
