@@ -72,6 +72,8 @@ class Tile:
         self.shelters: dict[str, dict] = {}
         self.storages: dict[str, dict[ResourceType, int]] = {}
         self.crops: list[dict] = []
+        self.traps: list[dict[str, Any]] = []
+        self.hazard: str | None = None
 
 
 class Map:
