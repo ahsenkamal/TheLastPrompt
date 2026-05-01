@@ -323,98 +323,78 @@ def _run_talk_phase(
         demo_log(logger, "Talk phase skipped: no visible talk recipients and no incoming messages")
         return result
 
-    talk_prompt = _talk_phase_prompt(state, turn_messages, recent_agent_messages, talk_budget_limit)
-    demo_log(logger, "Talk LLM prompt: chars=%s est_tokens=%s", len(talk_prompt), _estimate_tokens(talk_prompt))
-    talk_response = get_plan_response(talk_prompt)
-    talk_messages = _filter_talk_messages(talk_response.get("messages", []), state, talk_budget_limit)
-    if not talk_messages:
-        demo_log(logger, "Talk phase: LLM chose no messages")
-
-    sent_recipients = set()
-    for message in talk_messages:
-        recipient = message["recipient"]
-        if recipient in sent_recipients:
-            continue
-        sent_recipients.add(recipient)
-        action = {"action": "talk_to", "target": recipient}
-        result["actions"].append(action)
-
-    for message in talk_messages:
-        demo_log(
-            logger,
-            "You -> %s: %s",
-            _agent_label_from_public_key(state, message["recipient"]),
-            _one_line(message["content"], 240),
-        )
-        _send_agent_message(message["recipient"], message["content"], state.tick, self_public_key)
-        _append_chat_context(
-            recent_agent_messages,
-            {
-                "direction": "outgoing",
-                "to": message["recipient"],
-                "tick": state.tick,
-                "message": message["content"],
-            },
-        )
-        phase_messages.append(
-            {
-                "direction": "outgoing",
-                "to": message["recipient"],
-                "tick": state.tick,
-                "message": message["content"],
-            }
-        )
-        if runtime is not None:
-            runtime.record_chat(
-                state.sim_state,
-                "outgoing",
-                message["recipient"],
-                message["content"],
-                {"mode": "talk_phase"},
-            )
-
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
-    result["messages"] = talk_messages
-    result["talk_budget_spent"] = min(talk_budget_limit, len(sent_recipients) * talk_budget)
-
-    if talk_messages and config.TALK_PHASE_SECONDS > 0:
-        result["deferred_received"] = _collect_talk_replies(
-            state,
-            turn_messages,
-            recent_agent_messages,
-            phase_messages,
-            sent_recipients,
-            runtime,
-        )
-        if result["deferred_received"] is not None:
-            return result
-    result["talk_summary"] = _summarize_talk_phase(state, phase_messages)
-    if result["talk_summary"]:
-        demo_log(logger, "Talk summary: %s", _one_line(result["talk_summary"], 360))
-    return result
-
-
-def _talk_phase_context(talk_result: dict[str, Any], state: State) -> dict[str, Any]:
-    return {
-        "summary": talk_result.get("talk_summary", ""),
-        "sent_messages_count": len(talk_result.get("messages", [])),
-        "talk_budget": talk_result.get("talk_budget", 0),
-        "talk_budget_spent": talk_result.get("talk_budget_spent", 0),
-        "action_budget": talk_result.get("action_budget", _agent_action_budget(state)),
+    sent_messages: list[dict[str, str]] = []
+    sent_recipients = set()
+    sent_counts_by_peer: dict[str, int] = {}
+    incoming_counts_by_peer = _incoming_counts_by_peer(phase_messages)
+    pending_reply_peers = {
+        message["from"]
+        for message in phase_messages
+        if isinstance(message.get("from"), str) and message["from"] in talk_recipients
     }
+    waiting_for_reply_peers: set[str] = set()
+    tie_break_wait_peers: set[str] = set()
+    decision_needed = True
+    deadline = time.monotonic() + max(0.0, config.TALK_PHASE_SECONDS)
 
+    while True:
+        remaining_talk_budget = max(0.0, talk_budget_limit - len(sent_messages) * talk_budget)
+        can_send_more = (
+            len(sent_messages) < config.MAX_TALK_MESSAGES_PER_TICK
+            and remaining_talk_budget + 1e-9 >= talk_budget
+        )
 
-def _collect_talk_replies(
-    state: State,
-    turn_messages: list[dict[str, Any]],
-    recent_agent_messages: list[dict[str, Any]],
-    phase_messages: list[dict[str, Any]],
-    expected_recipients: set[str],
-    runtime: Any | None,
-) -> tuple[str, str] | None:
-    replied_recipients: set[str] = set()
-    deadline = time.monotonic() + config.TALK_PHASE_SECONDS
-    while time.monotonic() < deadline:
+        if decision_needed and can_send_more:
+            allowed_recipients = _talk_decision_recipients(
+                talk_recipients,
+                pending_reply_peers,
+                waiting_for_reply_peers,
+                tie_break_wait_peers,
+            )
+            if allowed_recipients:
+                talk_prompt = _talk_phase_prompt(
+                    state,
+                    phase_messages,
+                    recent_agent_messages,
+                    remaining_talk_budget,
+                    allowed_recipients,
+                    pending_reply_peers,
+                    waiting_for_reply_peers,
+                    tie_break_wait_peers,
+                )
+                demo_log(logger, "Talk LLM prompt: chars=%s est_tokens=%s", len(talk_prompt), _estimate_tokens(talk_prompt))
+                talk_response = get_plan_response(talk_prompt)
+                max_messages_remaining = config.MAX_TALK_MESSAGES_PER_TICK - len(sent_messages)
+                talk_messages = _filter_talk_messages(
+                    talk_response.get("messages", []),
+                    state,
+                    remaining_talk_budget,
+                    allowed_recipients=allowed_recipients,
+                    max_messages=max_messages_remaining,
+                )
+                if not talk_messages:
+                    demo_log(logger, "Talk phase: no outgoing messages right now; listening")
+                for message in talk_messages:
+                    _send_talk_phase_message(
+                        message,
+                        state,
+                        self_public_key,
+                        recent_agent_messages,
+                        phase_messages,
+                        runtime,
+                    )
+                    recipient = message["recipient"]
+                    sent_messages.append(message)
+                    sent_recipients.add(recipient)
+                    sent_counts_by_peer[recipient] = sent_counts_by_peer.get(recipient, 0) + 1
+                    waiting_for_reply_peers.add(recipient)
+            pending_reply_peers.clear()
+            decision_needed = False
+
+        if config.TALK_PHASE_SECONDS <= 0 or time.monotonic() >= deadline:
+            break
+
         received = axl.recv()
         if received is None:
             time.sleep(0.1)
@@ -434,71 +414,228 @@ def _collect_talk_replies(
             continue
 
         if msg.get("message_type") != config.MESSAGE_TYPE_AGENT_MSG:
-            return received
+            result["deferred_received"] = received
+            return result
 
-        agent_message = _queue_agent_message(turn_messages, sender, msg)
+        agent_message = _record_talk_phase_message(
+            state,
+            sender,
+            msg,
+            turn_messages,
+            recent_agent_messages,
+            phase_messages,
+            runtime,
+        )
         if agent_message is None:
             continue
 
-        _append_chat_context(
-            recent_agent_messages,
-            {
-                "direction": "incoming",
-                "from": agent_message["from"],
-                "tick": agent_message.get("tick"),
-                "message": agent_message["message"],
-            },
-        )
-        phase_messages.append(
-            {
-                "direction": "incoming",
-                "from": agent_message["from"],
-                "tick": agent_message.get("tick"),
-                "message": agent_message["message"],
-            }
-        )
-        demo_log(
-            logger,
-            "%s: %s",
-            _agent_label_from_public_key(state, agent_message["from"]),
-            _one_line(agent_message["message"], 240),
-        )
-        if runtime is not None:
-            runtime.record_chat(
-                state.sim_state,
-                "incoming",
-                agent_message["from"],
-                agent_message["message"],
-                {"mode": "talk_phase"},
-            )
+        peer = agent_message["from"]
         message_tick = agent_message.get("tick")
-        if (
-            agent_message["from"] in expected_recipients
-            and (message_tick is None or message_tick == state.tick)
+        if peer not in talk_recipients or (message_tick is not None and message_tick != state.tick):
+            continue
+
+        incoming_counts_by_peer[peer] = incoming_counts_by_peer.get(peer, 0) + 1
+        if _should_wait_for_peer_turn(
+            state,
+            peer,
+            sent_counts_by_peer,
+            incoming_counts_by_peer,
+            tie_break_wait_peers,
         ):
-            replied_recipients.add(agent_message["from"])
-            if replied_recipients >= expected_recipients:
-                demo_log(logger, "Talk phase: all contacted agents replied")
-                return None
-    return None
+            waiting_for_reply_peers.add(peer)
+            continue
+
+        waiting_for_reply_peers.discard(peer)
+        pending_reply_peers.add(peer)
+        decision_needed = True
+
+    result["actions"] = [{"action": "talk_to", "target": recipient} for recipient in sorted(sent_recipients)]
+    result["messages"] = sent_messages
+    result["talk_budget_spent"] = min(talk_budget_limit, len(sent_messages) * talk_budget)
+    result["talk_summary"] = _summarize_talk_phase(state, phase_messages)
+    if result["talk_summary"]:
+        demo_log(logger, "Talk summary: %s", _one_line(result["talk_summary"], 360))
+    return result
+
+
+def _talk_phase_context(talk_result: dict[str, Any], state: State) -> dict[str, Any]:
+    return {
+        "summary": talk_result.get("talk_summary", ""),
+        "sent_messages_count": len(talk_result.get("messages", [])),
+        "talk_budget": talk_result.get("talk_budget", 0),
+        "talk_budget_spent": talk_result.get("talk_budget_spent", 0),
+        "action_budget": talk_result.get("action_budget", _agent_action_budget(state)),
+    }
+
+
+def _record_talk_phase_message(
+    state: State,
+    sender: str,
+    msg: dict[str, Any],
+    turn_messages: list[dict[str, Any]],
+    recent_agent_messages: list[dict[str, Any]],
+    phase_messages: list[dict[str, Any]],
+    runtime: Any | None,
+) -> dict[str, Any] | None:
+    agent_message = _queue_agent_message(turn_messages, sender, msg)
+    if agent_message is None:
+        return None
+
+    _append_chat_context(
+        recent_agent_messages,
+        {
+            "direction": "incoming",
+            "from": agent_message["from"],
+            "tick": agent_message.get("tick"),
+            "message": agent_message["message"],
+        },
+    )
+    phase_messages.append(
+        {
+            "direction": "incoming",
+            "from": agent_message["from"],
+            "tick": agent_message.get("tick"),
+            "message": agent_message["message"],
+        }
+    )
+    demo_log(
+        logger,
+        "%s: %s",
+        _agent_label_from_public_key(state, agent_message["from"]),
+        _one_line(agent_message["message"], 240),
+    )
+    if runtime is not None:
+        runtime.record_chat(
+            state.sim_state,
+            "incoming",
+            agent_message["from"],
+            agent_message["message"],
+            {"mode": "talk_phase"},
+        )
+    return agent_message
+
+
+def _send_talk_phase_message(
+    message: dict[str, str],
+    state: State,
+    self_public_key: str,
+    recent_agent_messages: list[dict[str, Any]],
+    phase_messages: list[dict[str, Any]],
+    runtime: Any | None,
+) -> None:
+    recipient = message["recipient"]
+    content = message["content"]
+    demo_log(
+        logger,
+        "You -> %s: %s",
+        _agent_label_from_public_key(state, recipient),
+        _one_line(content, 240),
+    )
+    _send_agent_message(recipient, content, state.tick, self_public_key)
+    _append_chat_context(
+        recent_agent_messages,
+        {
+            "direction": "outgoing",
+            "to": recipient,
+            "tick": state.tick,
+            "message": content,
+        },
+    )
+    phase_messages.append(
+        {
+            "direction": "outgoing",
+            "to": recipient,
+            "tick": state.tick,
+            "message": content,
+        }
+    )
+    if runtime is not None:
+        runtime.record_chat(
+            state.sim_state,
+            "outgoing",
+            recipient,
+            content,
+            {"mode": "talk_phase"},
+        )
+
+
+def _incoming_counts_by_peer(messages: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for message in messages:
+        peer = message.get("from")
+        if isinstance(peer, str):
+            counts[peer] = counts.get(peer, 0) + 1
+    return counts
+
+
+def _talk_decision_recipients(
+    talk_recipients: set[str],
+    pending_reply_peers: set[str],
+    waiting_for_reply_peers: set[str],
+    tie_break_wait_peers: set[str],
+) -> set[str]:
+    recipients = set(pending_reply_peers) - tie_break_wait_peers
+    for recipient in talk_recipients:
+        if recipient in waiting_for_reply_peers or recipient in tie_break_wait_peers:
+            continue
+        recipients.add(recipient)
+    return recipients
+
+
+def _should_wait_for_peer_turn(
+    state: State,
+    peer: str,
+    sent_counts_by_peer: dict[str, int],
+    incoming_counts_by_peer: dict[str, int],
+    tie_break_wait_peers: set[str],
+) -> bool:
+    if peer in tie_break_wait_peers:
+        tie_break_wait_peers.remove(peer)
+        return False
+
+    if sent_counts_by_peer.get(peer, 0) <= 0 or incoming_counts_by_peer.get(peer, 0) != 1:
+        return False
+
+    self_id = _agent_state(state).get("id")
+    peer_id = _agent_id_from_public_key(state, peer)
+    if not isinstance(self_id, int) or not isinstance(peer_id, int) or self_id <= peer_id:
+        return False
+
+    tie_break_wait_peers.add(peer)
+    demo_log(
+        logger,
+        "Talk phase: simultaneous opener with %s; A%s waits for lower-id reply",
+        _agent_label_from_public_key(state, peer),
+        self_id,
+    )
+    return True
 
 
 def _talk_phase_prompt(
     state: State,
-    turn_messages: list[dict[str, Any]],
+    phase_messages: list[dict[str, Any]],
     recent_agent_messages: list[dict[str, Any]],
-    talk_budget_limit: float,
+    talk_budget_remaining: float,
+    allowed_recipients: set[str],
+    pending_reply_peers: set[str],
+    waiting_for_reply_peers: set[str],
+    tie_break_wait_peers: set[str],
 ) -> str:
     agent = _agent_state(state)
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
     return "\n".join(
         [
-            "Talk phase: talk briefly with visible agents before final actions are chosen.",
+            "Talk phase: choose whether to speak right now in an ongoing multi-agent conversation.",
             f"Tick: {state.tick}",
             f"Phase: {state.sim_state.get('phase', 'day')}",
             f"Temperature: {_number(state.sim_state.get('temp'))}C",
-            f"Talk budget: {talk_budget_limit:.2f}; talk_to cost: {talk_budget:.2f}; max messages: {config.MAX_TALK_MESSAGES_PER_TICK}",
+            f"Remaining talk budget: {talk_budget_remaining:.2f}; talk_to cost per message: {talk_budget:.2f}; max messages this tick: {config.MAX_TALK_MESSAGES_PER_TICK}",
             "Action choices are decided later; this phase only sends chat.",
+            "Conversation protocol:",
+            "- You may speak to multiple allowed recipients, one short message per recipient.",
+            "- You may also stay silent by returning an empty messages array.",
+            "- If you just sent a peer a message, wait for that peer before sending another message to them.",
+            "- If you and a peer both opened at the same time, the higher agent id waits and the lower agent id replies first.",
             (
                 f"You: {_agent_label(agent)} at {_position_text(agent.get('position'))}; "
                 f"health={_number(agent.get('health'))}, hunger={_number(agent.get('hunger'))}, "
@@ -510,9 +647,14 @@ def _talk_phase_prompt(
             "Visible map:",
             _render_visible_map(state),
             f"Visible agents: {_visible_agents_text(state)}",
-            f"Talk recipients: {_talk_recipients_text(state)}",
-            f"Incoming now: {_chat_messages_text(turn_messages)}",
-            f"Recent chat: {_chat_messages_text(recent_agent_messages)}",
+            f"All talk recipients: {_talk_recipients_text(state)}",
+            f"Allowed recipients now: {_peer_list_text(state, allowed_recipients)}",
+            f"Peers waiting for your reply: {_peer_list_text(state, pending_reply_peers)}",
+            f"Peers you are waiting on: {_peer_list_text(state, waiting_for_reply_peers)}",
+            f"Peers blocked by agent-id tie-break: {_peer_list_text(state, tie_break_wait_peers)}",
+            "Talk transcript this phase:",
+            _chat_messages_text(phase_messages, state),
+            f"Recent chat: {_chat_messages_text(recent_agent_messages, state)}",
         ]
     )
 
@@ -531,7 +673,7 @@ def _talk_summary_prompt(state: State, phase_messages: list[dict[str, Any]]) -> 
         [
             f"Tick: {state.tick}",
             "Talk transcript:",
-            _chat_messages_text(phase_messages),
+            _chat_messages_text(phase_messages, state),
         ]
     )
 
@@ -593,14 +735,24 @@ def _talk_recipients_text(state: State) -> str:
     return ", ".join(f"{_agent_label_from_public_key(state, recipient)}={recipient}" for recipient in recipients)
 
 
-def _chat_messages_text(messages: list[dict[str, Any]]) -> str:
+def _peer_list_text(state: State, recipients: set[str]) -> str:
+    if not recipients:
+        return "none"
+    return ", ".join(
+        f"{_agent_label_from_public_key(state, recipient)}={recipient}"
+        for recipient in sorted(recipients)
+    )
+
+
+def _chat_messages_text(messages: list[dict[str, Any]], state: State | None = None) -> str:
     if not messages:
         return "none"
     lines = []
     for message in messages[-config.CHAT_CONTEXT_LIMIT:]:
         direction = message.get("direction")
         peer = message.get("from") or message.get("to") or message.get("peer") or "?"
-        lines.append(f"{direction or 'incoming'} {peer}: {_one_line(str(message.get('message', '')), 180)}")
+        peer_text = _chat_peer_label(state, peer) if state is not None else str(peer)
+        lines.append(f"{direction or 'incoming'} {peer_text}: {_one_line(str(message.get('message', '')), 180)}")
     return "\n".join(lines)
 
 
@@ -608,14 +760,19 @@ def _filter_talk_messages(
     messages: list[dict[str, Any]],
     state: State,
     talk_budget_limit: float,
+    *,
+    allowed_recipients: set[str] | None = None,
+    max_messages: int | None = None,
 ) -> list[dict[str, str]]:
     talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
     max_by_budget = int(talk_budget_limit // max(talk_budget, 0.0001))
-    max_messages = max(0, min(config.MAX_TALK_MESSAGES_PER_TICK, max_by_budget))
-    if max_messages <= 0:
+    message_limit = max(0, min(config.MAX_TALK_MESSAGES_PER_TICK, max_by_budget))
+    if max_messages is not None:
+        message_limit = min(message_limit, max(0, max_messages))
+    if message_limit <= 0:
         return []
 
-    valid_recipients = _valid_talk_recipients(state)
+    valid_recipients = set(allowed_recipients) if allowed_recipients is not None else _valid_talk_recipients(state)
     selected = []
     seen_recipients = set()
     for raw_message in messages[: config.MAX_TALK_MESSAGES_PER_TICK]:
@@ -635,7 +792,7 @@ def _filter_talk_messages(
             }
         )
         seen_recipients.add(recipient)
-        if len(selected) >= max_messages:
+        if len(selected) >= message_limit:
             break
     return selected
 
@@ -1308,6 +1465,27 @@ def _agent_label_from_public_key(state: State, public_key: Any) -> str:
             if isinstance(occupant, dict) and occupant.get("public_key") == public_key:
                 return _agent_label(occupant)
     return "A?"
+
+
+def _agent_id_from_public_key(state: State, public_key: Any) -> int | None:
+    if not isinstance(public_key, str) or not public_key:
+        return None
+
+    self_agent = _agent_state(state)
+    if self_agent.get("public_key") == public_key and isinstance(self_agent.get("id"), int):
+        return self_agent["id"]
+
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if (
+                isinstance(occupant, dict)
+                and occupant.get("public_key") == public_key
+                and isinstance(occupant.get("id"), int)
+            ):
+                return occupant["id"]
+    return None
 
 
 def _chat_peer_label(state: State | None, public_key: Any) -> str:

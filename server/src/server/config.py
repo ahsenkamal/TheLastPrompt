@@ -27,7 +27,7 @@ def _get_float(name: str, default: float) -> float:
 # SIM
 AGENTS_IN_SIM = 2
 SIM_MAX_TICKS = 100
-TICK_TIMEOUT_SECONDS = _get_float("TICK_TIMEOUT_SECONDS", 60.0)
+TICK_TIMEOUT_SECONDS = _get_float("TICK_TIMEOUT_SECONDS", 180.0)
 
 # MAP
 MAP_SIZE = 5

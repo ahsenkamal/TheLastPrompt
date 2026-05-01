@@ -131,7 +131,8 @@ Choose at most the allowed talk messages.
 Use only listed talk recipients. Keep messages short, practical, and tied to the current tick.
 Do not claim you carry resources unless they are in Inventory.
 Do not choose movement, eating, gathering, combat, or trade actions here; this phase is only for talking to agents.
-If nothing useful should be said, return an empty messages array.
+You may open, reply, coordinate, warn, deceive, threaten, or stay silent.
+Return an empty messages array when you do not want to speak right now.
 """
 
 
