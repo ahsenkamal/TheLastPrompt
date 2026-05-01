@@ -390,11 +390,13 @@ def _run_talk_phase(
     }
     waiting_for_reply_peers: set[str] = set()
     tie_break_wait_peers: set[str] = set()
+    closed_peers: set[str] = set()
     decision_needed = True
+    finish_talk_phase = False
     deadline = time.monotonic() + max(0.0, config.TALK_PHASE_SECONDS)
 
     def consume_received(received: ReceivedMessage) -> bool:
-        nonlocal decision_needed
+        nonlocal decision_needed, finish_talk_phase
 
         sender, raw_msg = received
         msg = _decode_message(raw_msg)
@@ -430,6 +432,19 @@ def _run_talk_phase(
         if peer not in talk_recipients or (message_tick is not None and message_tick != state.tick):
             return False
 
+        if _incoming_closes_conversation(peer, agent_message["message"], phase_messages):
+            closed_peers.add(peer)
+            waiting_for_reply_peers.discard(peer)
+            pending_reply_peers.discard(peer)
+            tie_break_wait_peers.discard(peer)
+            finish_talk_phase = not pending_reply_peers and not waiting_for_reply_peers
+            demo_log(
+                logger,
+                "Talk phase: %s closed the conversation; no reply needed",
+                _agent_label_from_public_key(state, peer),
+            )
+            return False
+
         incoming_counts_by_peer[peer] = incoming_counts_by_peer.get(peer, 0) + 1
         if _should_wait_for_peer_turn(
             state,
@@ -458,6 +473,9 @@ def _run_talk_phase(
             if consume_received(received):
                 return result
 
+        if finish_talk_phase:
+            break
+
         remaining_talk_budget = max(0.0, talk_budget_limit - len(sent_messages) * talk_budget)
         can_send_more = (
             len(sent_messages) < config.MAX_TALK_MESSAGES_PER_TICK
@@ -470,8 +488,10 @@ def _run_talk_phase(
                 pending_reply_peers,
                 waiting_for_reply_peers,
                 tie_break_wait_peers,
+                closed_peers,
             )
             if allowed_recipients:
+                pending_replies_for_decision = set(pending_reply_peers)
                 talk_prompt = _talk_phase_prompt(
                     state,
                     phase_messages,
@@ -493,7 +513,17 @@ def _run_talk_phase(
                     max_messages=max_messages_remaining,
                 )
                 if not talk_messages:
-                    demo_log(logger, "Talk phase: no outgoing messages right now; listening")
+                    if pending_replies_for_decision:
+                        closed_peers.update(pending_replies_for_decision)
+                        waiting_for_reply_peers.difference_update(pending_replies_for_decision)
+                        finish_talk_phase = not waiting_for_reply_peers
+                        demo_log(
+                            logger,
+                            "Talk phase: LLM ended conversation with %s",
+                            _peer_list_text(state, pending_replies_for_decision),
+                        )
+                    else:
+                        demo_log(logger, "Talk phase: no outgoing messages right now; listening")
                 for message in talk_messages:
                     _send_talk_phase_message(
                         message,
@@ -588,6 +618,110 @@ def _record_talk_phase_message(
     return agent_message
 
 
+def _incoming_closes_conversation(peer: str, incoming_text: str, phase_messages: list[dict[str, Any]]) -> bool:
+    text = _normalized_chat_text(incoming_text)
+    if not text or "?" in incoming_text:
+        return False
+
+    last_outgoing = _last_outgoing_to_peer(peer, phase_messages)
+    if last_outgoing is not None and _is_acknowledgement_text(text):
+        return True
+
+    if _is_peer_commitment_text(text):
+        return True
+
+    return False
+
+
+def _last_outgoing_to_peer(peer: str, phase_messages: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for message in reversed(phase_messages[:-1]):
+        if message.get("direction") == "outgoing" and message.get("to") == peer:
+            return message
+    return None
+
+
+def _is_acknowledgement_text(text: str) -> bool:
+    ack_phrases = (
+        "go ahead",
+        "sounds good",
+        "that works",
+        "works for me",
+        "understood",
+        "got it",
+        "do that",
+        "proceed",
+        "thank you",
+        "thanks",
+        "agreed",
+        "agree",
+        "roger",
+        "deal",
+    )
+    if any(phrase in text for phrase in ack_phrases):
+        return True
+
+    words = set(text.split())
+    return bool(words & {"ok", "okay", "yes", "yep", "sure", "fine"})
+
+
+def _is_peer_commitment_text(text: str) -> bool:
+    if _looks_like_request(text):
+        return False
+
+    commitment_phrases = ("i'll", "ill", "i will", "i am going to", "i'm going to")
+    if not any(phrase in text for phrase in commitment_phrases):
+        return False
+
+    words = set(text.split())
+    cooperative_actions = {
+        "gather",
+        "gathering",
+        "pick",
+        "collect",
+        "harvest",
+        "move",
+        "get",
+        "bring",
+        "take",
+        "handle",
+        "work",
+        "fish",
+        "craft",
+        "build",
+        "cook",
+        "purify",
+    }
+    return bool(words & cooperative_actions)
+
+
+def _looks_like_request(text: str) -> bool:
+    request_phrases = (
+        "can you",
+        "could you",
+        "would you",
+        "will you",
+        "do you",
+        "should we",
+        "should i",
+        "want to",
+        "want me",
+        "if you want",
+        "need you",
+        "i need",
+        "we need",
+        "please",
+        "let's",
+        "lets",
+    )
+    return any(phrase in text for phrase in request_phrases)
+
+
+def _normalized_chat_text(text: str) -> str:
+    return " ".join(
+        "".join(char.lower() if char.isalnum() or char in {"'", " "} else " " for char in text).split()
+    )
+
+
 def _send_talk_phase_message(
     message: dict[str, str],
     state: State,
@@ -646,10 +780,11 @@ def _talk_decision_recipients(
     pending_reply_peers: set[str],
     waiting_for_reply_peers: set[str],
     tie_break_wait_peers: set[str],
+    closed_peers: set[str],
 ) -> set[str]:
-    recipients = set(pending_reply_peers) - tie_break_wait_peers
+    recipients = set(pending_reply_peers) - tie_break_wait_peers - closed_peers
     for recipient in talk_recipients:
-        if recipient in waiting_for_reply_peers or recipient in tie_break_wait_peers:
+        if recipient in waiting_for_reply_peers or recipient in tie_break_wait_peers or recipient in closed_peers:
             continue
         recipients.add(recipient)
     return recipients
@@ -709,6 +844,8 @@ def _talk_phase_prompt(
             "- You may also stay silent by returning an empty messages array.",
             "- If you just sent a peer a message, wait for that peer before sending another message to them.",
             "- If you and a peer both opened at the same time, the higher agent id waits and the lower agent id replies first.",
+            "- End the conversation by returning an empty messages array when the peer acknowledged, agreed, gave permission, or committed to an action and there is no new question.",
+            "- Do not repeat a commitment you already made, such as saying you will gather after the peer already said to go ahead.",
             (
                 f"You: {_agent_label(agent)} at {_position_text(agent.get('position'))}; "
                 f"health={_number(agent.get('health'))}, hunger={_number(agent.get('hunger'))}, "

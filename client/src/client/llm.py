@@ -134,6 +134,8 @@ Keep messages short, practical, and tied to the current tick.
 Do not claim you carry resources unless they are in Inventory.
 Do not choose movement, eating, gathering, combat, or trade actions here; this phase is only for talking to agents.
 You may open, reply, coordinate, warn, deceive, threaten, or stay silent.
+Return an empty messages array when the peer only acknowledged, agreed, gave permission, or committed to an action and there is no new question.
+Do not repeat commitments already made in the transcript.
 Return an empty messages array when you do not want to speak right now.
 """
 
