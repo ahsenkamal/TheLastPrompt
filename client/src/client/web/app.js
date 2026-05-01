@@ -236,10 +236,15 @@ function renderThinking(decision) {
     return;
   }
   const actions = decision.actions || decision.actions_json || [];
-  els.decisionMeta.textContent = `tick ${decision.tick ?? "?"} · ${actions.length || 0} actions`;
+  const budgets = decision.phase_budgets || {};
+  const actionBudget = Number(budgets.action_budget);
+  const budgetText = Number.isFinite(actionBudget) ? ` · action ${actionBudget.toFixed(2)}` : "";
+  els.decisionMeta.textContent = `tick ${decision.tick ?? "?"} · ${actions.length || 0} actions${budgetText}`;
   const reasoning = decision.reasoning || "No reasoning returned.";
+  const summary = decision.talk_summary || decision.plan || "";
+  const planText = summary ? `Talk summary:\n${summary}\n\n` : "";
   const actionText = actions.map((action) => `- ${action.action || JSON.stringify(action)}`).join("\n");
-  els.thinking.textContent = `${reasoning}\n\nActions:\n${actionText || "- wait"}`;
+  els.thinking.textContent = `${planText}${reasoning}\n\nActions:\n${actionText || "- wait"}`;
 }
 
 function renderChat(chats) {

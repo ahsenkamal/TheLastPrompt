@@ -8,6 +8,7 @@ class State:
         self.sim_state = sim_state
         self.agent_messages: list[dict[str, Any]] = []
         self.recent_agent_messages: list[dict[str, Any]] = []
+        self.talk_phase: dict[str, Any] = {}
         self.state_history.append(self.sim_state)
 
     def update(self, sim_state):
@@ -22,9 +23,11 @@ class State:
         self,
         messages: list[dict[str, Any]],
         recent_messages: list[dict[str, Any]] | None = None,
+        talk_phase: dict[str, Any] | None = None,
     ):
         self.agent_messages = messages
         self.recent_agent_messages = list(recent_messages or [])
+        self.talk_phase = dict(talk_phase or {})
 
     def get_valid_actions(self) -> list[dict[str, Any]]:
         valid_actions = self.sim_state.get("valid_actions", [])
@@ -36,5 +39,6 @@ class State:
         state = deepcopy(self.sim_state)
         state["incoming_agent_messages"] = self.agent_messages
         state["recent_agent_messages"] = self.recent_agent_messages
+        state["talk_phase"] = self.talk_phase
         state["state_history_length"] = len(self.state_history)
         return json.dumps(state, indent=2, ensure_ascii=False)

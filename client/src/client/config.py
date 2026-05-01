@@ -49,6 +49,8 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5")
 OLLAMA_CONTEXT_LENGTH = _get_int("OLLAMA_CONTEXT_LENGTH", 8192)
 OLLAMA_RESPONSE_TOKENS = _get_int("OLLAMA_RESPONSE_TOKENS", 512)
+OLLAMA_PLAN_RESPONSE_TOKENS = _get_int("OLLAMA_PLAN_RESPONSE_TOKENS", 220)
+OLLAMA_SUMMARY_RESPONSE_TOKENS = _get_int("OLLAMA_SUMMARY_RESPONSE_TOKENS", 180)
 OLLAMA_CHAT_RESPONSE_TOKENS = _get_int("OLLAMA_CHAT_RESPONSE_TOKENS", 160)
 OLLAMA_TEMPERATURE = _get_float("OLLAMA_TEMPERATURE", 0.2)
 OLLAMA_TOP_P = _get_float("OLLAMA_TOP_P", 0.9)
@@ -56,6 +58,8 @@ OLLAMA_TOP_K = _get_int("OLLAMA_TOP_K", 40)
 OLLAMA_REPEAT_PENALTY = _get_float("OLLAMA_REPEAT_PENALTY", 1.1)
 OLLAMA_SEED = os.getenv("OLLAMA_SEED")
 OLLAMA_THINK = _get_think("OLLAMA_THINK", False)
+OLLAMA_PLAN_THINK = _get_think("OLLAMA_PLAN_THINK", False)
+OLLAMA_SUMMARY_THINK = _get_think("OLLAMA_SUMMARY_THINK", False)
 OLLAMA_CHAT_THINK = _get_think("OLLAMA_CHAT_THINK", False)
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "5m")
 OLLAMA_TIMEOUT_SECONDS = _get_float("OLLAMA_TIMEOUT_SECONDS", 120.0)
@@ -73,6 +77,10 @@ MAX_AGENT_MESSAGES_PER_TICK = _get_int("MAX_AGENT_MESSAGES_PER_TICK", 3)
 MAX_AGENT_MESSAGE_CHARS = _get_int("MAX_AGENT_MESSAGE_CHARS", 600)
 AGENT_MESSAGE_HISTORY_LIMIT = _get_int("AGENT_MESSAGE_HISTORY_LIMIT", 20)
 CHAT_CONTEXT_LIMIT = _get_int("CHAT_CONTEXT_LIMIT", 8)
+PLAN_PHASE_ENABLED = _get_bool("PLAN_PHASE_ENABLED", True)
+TALK_PHASE_SECONDS = _get_float("TALK_PHASE_SECONDS", _get_float("PLAN_PHASE_SECONDS", 100.0))
+PLAN_TALK_BUDGET = _get_float("PLAN_TALK_BUDGET", 0.5)
+MAX_PLAN_MESSAGES_PER_TICK = _get_int("MAX_PLAN_MESSAGES_PER_TICK", 5)
 DIRECT_AGENT_CHAT = _get_bool("DIRECT_AGENT_CHAT", False)
 MAX_DIRECT_CHAT_REPLIES_PER_TICK = _get_int("MAX_DIRECT_CHAT_REPLIES_PER_TICK", 5)
 CHAT_ACTION_BUDGET = _get_float("CHAT_ACTION_BUDGET", 0.1)
@@ -83,12 +91,13 @@ The conditions are harsh and cold and you must survive by managing your health, 
 The simulation runs in iterations. Each iteration, you'll be given state information and valid actions.
 You have to choose which actions to take to interact with the world.
 Each action has a budget cost; the total action budget for a tick is shown as agent.action_budget.
+Each tick has a talk phase, then an action phase. Talk uses a separate plan_talk_budget; actions still use agent.action_budget.
 Your carried resources also have weight, and you cannot exceed carry_capacity.
 agent.inventory is what you carry. visible_map tile resources are on the ground; use pick_resource before claiming, trading, or promising them.
 Move actions can go to any listed valid target, including diagonals; do not assume only up/down/left/right.
 Meters: hunger/thirst are bad when high. hunger >70 is dangerous; thirst >50 starts hurting and >70 is dangerous. warmth <30 is dangerous. health <=0 means death.
 You can talk to other agents to form alliances, trade resources, deceive, fight or just chat.
-incoming_agent_messages are new messages to consider now; recent_agent_messages is a short chat memory.
+In the action phase, use talk_phase.summary instead of raw chat transcripts.
 """
 
 USER_PROMPT = ""

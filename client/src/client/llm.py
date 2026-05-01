@@ -75,11 +75,42 @@ ACTION_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+PLAN_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "messages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "recipient": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["recipient", "content"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["messages"],
+    "additionalProperties": False,
+}
+
+
+SUMMARY_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+    },
+    "required": ["summary"],
+    "additionalProperties": False,
+}
+
+
 SYSTEM_PROMPT = """
-You are choosing one turn for a survival simulation agent.
+You are choosing the action phase for a survival simulation agent after a talk phase.
 Return only JSON that matches the provided schema.
 Choose actions from the valid_actions list in the prompt.
-Fill required fields using agent, visible_map, inventory, incoming_agent_messages, and recent_agent_messages.
+Fill required fields using agent, visible_map, inventory, and talk_phase.summary.
 Use coordinates from visible_map, resource names from inventory/resources, and public keys from visible occupants.
 The sum of selected action budgets must be <= agent.action_budget.
 Do not pick up or request resources if carrying them would exceed carry_capacity.
@@ -87,8 +118,28 @@ Do not say you have or can trade an item unless it is present in agent.inventory
 Move can use any valid move target, including diagonal targets.
 Treat hunger >70, thirst >50, and warmth <30 as urgent survival problems.
 For trade, use consumable as the resource you offer and item as the resource you request; trade only resolves when both agents submit matching trade actions.
-Use messages only when you also choose a valid talk_to action for the same recipient public key; put talk_to before movement, combat, or gathering when talking and acting in the same tick.
+Talk belongs in the talk phase; in this action phase, prefer movement, survival, resource, trade, rest, or combat actions.
 Do not include explanations, markdown, or keys outside the schema.
+"""
+
+
+PLAN_SYSTEM_PROMPT = """
+You are in the talk phase before actions in a survival simulation.
+Return only JSON that matches the provided schema.
+Choose at most the allowed talk messages.
+Use only listed talk recipients. Keep messages short, practical, and tied to the current tick.
+Do not claim you carry resources unless they are in Inventory.
+Do not choose movement, eating, gathering, combat, or trade actions here; this phase is only for talking to agents.
+If nothing useful should be said, return an empty messages array.
+"""
+
+
+SUMMARY_SYSTEM_PROMPT = """
+Summarize the talk phase for the action decision.
+Return only JSON that matches the provided schema.
+Write at most two short lines.
+Keep only agreements, threats, offers, requests, warnings, and useful intentions.
+Do not add advice, plans, or facts that were not in the conversation.
 """
 
 
@@ -100,6 +151,94 @@ Do not write JSON, markdown, labels, quotes, or explanations.
 Do not claim you carry resources unless they are in your inventory.
 Keep it short, practical, and in character.
 """
+
+
+def get_plan_response(prompt: str) -> dict[str, Any]:
+    try:
+        payload = _create_plan_payload(prompt)
+        base_url = config.OLLAMA_BASE_URL.rstrip("/")
+        estimated_prompt_tokens = _estimate_tokens(prompt)
+        estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_PLAN_RESPONSE_TOKENS
+        logger.info(
+            "ollama plan request model=%s base_url=%s think=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
+            config.OLLAMA_MODEL,
+            base_url,
+            config.OLLAMA_PLAN_THINK,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_PLAN_RESPONSE_TOKENS,
+            config.OLLAMA_CONTEXT_LENGTH,
+            estimated_total_tokens,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
+
+        start_time = time.monotonic()
+        response = _post_json(
+            f"{base_url}/api/chat",
+            payload,
+            stream_label="Plan",
+            display_content=config.OLLAMA_STREAM_JSON_LOG,
+        )
+        elapsed = time.monotonic() - start_time
+        content = _extract_chat_content(response)
+        reasoning = _extract_chat_reasoning(response)
+        parsed = _parse_json_content(content)
+        normalized = normalize_plan_response(parsed)
+        normalized["reasoning"] = reasoning
+        logger.info(
+            "ollama talk response elapsed=%.2fs model=%s messages=%s reasoning_chars=%s usage=%s",
+            elapsed,
+            response.get("model"),
+            normalized["messages"],
+            len(reasoning),
+            _usage_summary(response),
+        )
+        return normalized
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
+        logger.warning("ollama plan request failed, skipping plan chat: %s", exc)
+        return {"messages": [], "reasoning": ""}
+
+
+def get_summary_response(prompt: str) -> dict[str, str]:
+    try:
+        payload = _create_summary_payload(prompt)
+        base_url = config.OLLAMA_BASE_URL.rstrip("/")
+        estimated_prompt_tokens = _estimate_tokens(prompt)
+        estimated_total_tokens = estimated_prompt_tokens + config.OLLAMA_SUMMARY_RESPONSE_TOKENS
+        logger.info(
+            "ollama summary request model=%s base_url=%s think=%s prompt_chars=%s estimated_prompt_tokens=%s response_token_limit=%s context_length=%s estimated_total_tokens=%s estimated_fits_context=%s",
+            config.OLLAMA_MODEL,
+            base_url,
+            config.OLLAMA_SUMMARY_THINK,
+            len(prompt),
+            estimated_prompt_tokens,
+            config.OLLAMA_SUMMARY_RESPONSE_TOKENS,
+            config.OLLAMA_CONTEXT_LENGTH,
+            estimated_total_tokens,
+            estimated_total_tokens <= config.OLLAMA_CONTEXT_LENGTH,
+        )
+        start_time = time.monotonic()
+        response = _post_json(
+            f"{base_url}/api/chat",
+            payload,
+            stream_label="Summary",
+            display_content=config.OLLAMA_STREAM_JSON_LOG,
+        )
+        elapsed = time.monotonic() - start_time
+        content = _extract_chat_content(response)
+        parsed = _parse_json_content(content)
+        normalized = normalize_summary_response(parsed)
+        logger.info(
+            "ollama summary response elapsed=%.2fs model=%s summary_chars=%s usage=%s",
+            elapsed,
+            response.get("model"),
+            len(normalized["summary"]),
+            _usage_summary(response),
+        )
+        return normalized
+    except (OSError, TimeoutError, ValueError, json.JSONDecodeError, error.URLError) as exc:
+        logger.warning("ollama summary request failed, using compact transcript summary: %s", exc)
+        return {"summary": ""}
 
 
 def get_llm_response(prompt: str) -> dict[str, Any]:
@@ -220,6 +359,90 @@ def normalize_llm_response(payload: Any) -> dict[str, Any]:
             messages.append(message)
 
     return {"actions": actions, "messages": messages}
+
+
+def normalize_plan_response(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Plan response must be an object")
+
+    messages = []
+    for raw_message in payload.get("messages", []):
+        message = _normalize_message(raw_message)
+        if message is not None:
+            messages.append(message)
+
+    return {"messages": messages}
+
+
+def normalize_summary_response(payload: Any) -> dict[str, str]:
+    if not isinstance(payload, dict):
+        raise ValueError("Summary response must be an object")
+    summary = payload.get("summary", "")
+    if not isinstance(summary, str):
+        summary = ""
+    return {"summary": " ".join(summary.split())[:500]}
+
+
+def _create_plan_payload(prompt: str) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "num_ctx": config.OLLAMA_CONTEXT_LENGTH,
+        "num_predict": config.OLLAMA_PLAN_RESPONSE_TOKENS,
+        "temperature": config.OLLAMA_TEMPERATURE,
+        "top_p": config.OLLAMA_TOP_P,
+        "top_k": config.OLLAMA_TOP_K,
+        "repeat_penalty": config.OLLAMA_REPEAT_PENALTY,
+    }
+
+    if config.OLLAMA_SEED:
+        options["seed"] = int(config.OLLAMA_SEED)
+
+    schema = json.dumps(PLAN_RESPONSE_SCHEMA, indent=2)
+    return {
+        "model": config.OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": PLAN_SYSTEM_PROMPT.strip()},
+            {
+                "role": "user",
+                "content": f"{prompt}\n\nReturn JSON matching this schema:\n{schema}",
+            },
+        ],
+        "stream": config.OLLAMA_STREAM,
+        "format": PLAN_RESPONSE_SCHEMA,
+        "think": config.OLLAMA_PLAN_THINK,
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
+        "options": options,
+    }
+
+
+def _create_summary_payload(prompt: str) -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "num_ctx": config.OLLAMA_CONTEXT_LENGTH,
+        "num_predict": config.OLLAMA_SUMMARY_RESPONSE_TOKENS,
+        "temperature": config.OLLAMA_TEMPERATURE,
+        "top_p": config.OLLAMA_TOP_P,
+        "top_k": config.OLLAMA_TOP_K,
+        "repeat_penalty": config.OLLAMA_REPEAT_PENALTY,
+    }
+
+    if config.OLLAMA_SEED:
+        options["seed"] = int(config.OLLAMA_SEED)
+
+    schema = json.dumps(SUMMARY_RESPONSE_SCHEMA, indent=2)
+    return {
+        "model": config.OLLAMA_MODEL,
+        "messages": [
+            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT.strip()},
+            {
+                "role": "user",
+                "content": f"{prompt}\n\nReturn JSON matching this schema:\n{schema}",
+            },
+        ],
+        "stream": config.OLLAMA_STREAM,
+        "format": SUMMARY_RESPONSE_SCHEMA,
+        "think": config.OLLAMA_SUMMARY_THINK,
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
+        "options": options,
+    }
 
 
 def _create_chat_payload(prompt: str) -> dict[str, Any]:

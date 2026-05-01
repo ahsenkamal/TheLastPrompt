@@ -389,7 +389,8 @@ class Simulation:
                 )
                 continue
 
-            if action.budget > remaining_budget:
+            action_budget = _server_action_budget(action)
+            if action_budget > remaining_budget:
                 logger.info(
                     "skip action over budget sim_id=%s tick=%s agent=%s action=%s remaining_budget=%.2f",
                     self.id,
@@ -410,7 +411,7 @@ class Simulation:
                 remaining_budget,
             )
             execute_action(self, agent, action)
-            remaining_budget -= action.budget
+            remaining_budget -= action_budget
             executed_action = True
             self.record_action(agent, action)
             self.enforce_agent_bounds(agent)
@@ -971,6 +972,12 @@ def _update_action_budget(agent: Agent):
         agent.action_budget = 0.8
     else:
         agent.action_budget = 1.0
+
+
+def _server_action_budget(action: Action) -> float:
+    if action.action_type == ActionType.TALK_TO:
+        return 0.0
+    return action.budget
 
 
 def _kill_counts(kill_log: list[dict[str, Any]]) -> dict[int, int]:

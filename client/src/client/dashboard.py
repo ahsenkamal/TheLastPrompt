@@ -66,6 +66,8 @@ class ClientRuntime:
             "raw_actions": llm_response.get("actions", []),
             "raw_messages": llm_response.get("messages", []),
             "reasoning": llm_response.get("reasoning", ""),
+            "talk_summary": accepted.get("talk_summary", ""),
+            "phase_budgets": accepted.get("phase_budgets", {}),
         }
         self.store.record_decision(
             sim_id,

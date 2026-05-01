@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-from .llm import get_chat_response, get_llm_response
+from .llm import get_chat_response, get_llm_response, get_plan_response, get_summary_response
 from .state import State
 from common.logging_config import demo_log
 
@@ -20,6 +20,7 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
     pending_agent_messages: list[dict[str, Any]] = []
     recent_agent_messages: list[dict[str, Any]] = []
     direct_chat_budget_by_tick: dict[int, float] = {}
+    deferred_received: tuple[str, str] | None = None
     server_sender = config.SERVER_PEER_ID or config.SERVER_PUBLIC_KEY
     logger.info(
         "using server id=%s axl_match_prefix=%s",
@@ -29,7 +30,11 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
 
     while True:
         # wait for state update from server
-        received = axl.recv()
+        if deferred_received is not None:
+            received = deferred_received
+            deferred_received = None
+        else:
+            received = axl.recv()
         if received is None:
             time.sleep(0.1)
             continue
@@ -102,9 +107,10 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             state = State(received_state)
         else:
             state.update(received_state)
-        state.set_agent_messages(pending_agent_messages, recent_agent_messages)
+        turn_messages = list(pending_agent_messages)
+        state.set_agent_messages(turn_messages, recent_agent_messages)
         if runtime is not None:
-            runtime.record_state(state.sim_state, pending_agent_messages)
+            runtime.record_state(state.sim_state, turn_messages)
         _prune_direct_chat_budget(direct_chat_budget_by_tick, state.tick)
         logger.info(
             "state update sim_id=%s tick=%s agent=%s valid_actions=%s incoming_agent_messages=%s",
@@ -112,7 +118,7 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             state.tick,
             received_state.get("agent"),
             len(state.get_valid_actions()),
-            len(pending_agent_messages),
+            len(turn_messages),
         )
         pending_agent_messages = []
         demo_log(logger, _demo_state_block(state))
@@ -121,6 +127,23 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             logger.info("simulation results\n%s", results_block)
             demo_log(logger, results_block)
             return
+
+        plan_result = _run_plan_phase(
+            state,
+            self_public_key,
+            turn_messages,
+            recent_agent_messages,
+            runtime,
+        )
+        deferred_received = plan_result.get("deferred_received")
+        if deferred_received is not None:
+            continue
+
+        state.set_agent_messages(
+            [],
+            [],
+            _talk_phase_context(plan_result, state),
+        )
 
         # create prompt for user
         final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + state.get_state_description()
@@ -142,8 +165,25 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             logger.info("llm reasoning tick=%s not returned", state.tick)
 
         # send response to server
-        accepted = _send_llm_response(llm_response, state, self_public_key)
-        for message in accepted["messages"]:
+        action_accepted = _send_llm_response(
+            llm_response,
+            state,
+            self_public_key,
+            action_budget=plan_result["action_budget"],
+            allow_talk=not config.PLAN_PHASE_ENABLED,
+            prefix_actions=plan_result["actions"],
+        )
+        accepted = {
+            "actions": action_accepted["actions"],
+            "messages": plan_result["messages"] + action_accepted["messages"],
+            "talk_summary": plan_result["talk_summary"],
+            "phase_budgets": {
+                "plan_talk_budget": plan_result["plan_talk_budget"],
+                "plan_budget_spent": plan_result["plan_budget_spent"],
+                "action_budget": plan_result["action_budget"],
+            },
+        }
+        for message in action_accepted["messages"]:
             _append_chat_context(
                 recent_agent_messages,
                 {
@@ -227,15 +267,321 @@ def _append_chat_context(chat_context: list[dict[str, Any]], message: dict[str, 
         del chat_context[:-config.CHAT_CONTEXT_LIMIT]
 
 
+def _run_plan_phase(
+    state: State,
+    self_public_key: str,
+    turn_messages: list[dict[str, Any]],
+    recent_agent_messages: list[dict[str, Any]],
+    runtime: Any | None,
+) -> dict[str, Any]:
+    action_budget = _agent_action_budget(state)
+    plan_talk_budget = max(0.0, config.PLAN_TALK_BUDGET)
+    result: dict[str, Any] = {
+        "talk_summary": "",
+        "actions": [],
+        "messages": [],
+        "plan_talk_budget": plan_talk_budget,
+        "plan_budget_spent": 0.0,
+        "action_budget": action_budget,
+        "deferred_received": None,
+    }
+
+    if not config.PLAN_PHASE_ENABLED or plan_talk_budget <= 0:
+        return result
+
+    phase_messages = list(turn_messages)
+    talk_recipients = _valid_talk_recipients(state)
+    if not talk_recipients and not turn_messages:
+        return result
+
+    plan_prompt = _plan_phase_prompt(state, turn_messages, recent_agent_messages, plan_talk_budget)
+    plan_response = get_plan_response(plan_prompt)
+    plan_messages = _filter_plan_messages(plan_response.get("messages", []), state, plan_talk_budget)
+
+    sent_recipients = set()
+    for message in plan_messages:
+        recipient = message["recipient"]
+        if recipient in sent_recipients:
+            continue
+        sent_recipients.add(recipient)
+        action = {"action": "talk_to", "target": recipient}
+        result["actions"].append(action)
+
+    for message in plan_messages:
+        demo_log(
+            logger,
+            "Plan -> %s: %s",
+            _agent_label_from_public_key(state, message["recipient"]),
+            _one_line(message["content"], 240),
+        )
+        _send_agent_message(message["recipient"], message["content"], state.tick, self_public_key)
+        _append_chat_context(
+            recent_agent_messages,
+            {
+                "direction": "outgoing",
+                "to": message["recipient"],
+                "tick": state.tick,
+                "message": message["content"],
+            },
+        )
+        phase_messages.append(
+            {
+                "direction": "outgoing",
+                "to": message["recipient"],
+                "tick": state.tick,
+                "message": message["content"],
+            }
+        )
+        if runtime is not None:
+            runtime.record_chat(
+                state.sim_state,
+                "outgoing",
+                message["recipient"],
+                message["content"],
+                {"mode": "plan_phase"},
+            )
+
+    talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
+    result["messages"] = plan_messages
+    result["plan_budget_spent"] = min(plan_talk_budget, len(sent_recipients) * talk_budget)
+
+    if plan_messages and config.TALK_PHASE_SECONDS > 0:
+        result["deferred_received"] = _collect_plan_replies(
+            state,
+            turn_messages,
+            recent_agent_messages,
+            phase_messages,
+            runtime,
+        )
+        if result["deferred_received"] is not None:
+            return result
+    result["talk_summary"] = _summarize_talk_phase(state, phase_messages)
+    if result["talk_summary"]:
+        demo_log(logger, "Talk summary: %s", _one_line(result["talk_summary"], 360))
+    return result
+
+
+def _talk_phase_context(plan_result: dict[str, Any], state: State) -> dict[str, Any]:
+    return {
+        "summary": plan_result.get("talk_summary", ""),
+        "sent_messages_count": len(plan_result.get("messages", [])),
+        "plan_talk_budget": plan_result.get("plan_talk_budget", 0),
+        "plan_budget_spent": plan_result.get("plan_budget_spent", 0),
+        "action_budget": plan_result.get("action_budget", _agent_action_budget(state)),
+    }
+
+
+def _collect_plan_replies(
+    state: State,
+    turn_messages: list[dict[str, Any]],
+    recent_agent_messages: list[dict[str, Any]],
+    phase_messages: list[dict[str, Any]],
+    runtime: Any | None,
+) -> tuple[str, str] | None:
+    deadline = time.monotonic() + config.TALK_PHASE_SECONDS
+    while time.monotonic() < deadline:
+        received = axl.recv()
+        if received is None:
+            time.sleep(0.1)
+            continue
+
+        sender, raw_msg = received
+        msg = _decode_message(raw_msg)
+        if msg is None:
+            continue
+
+        if msg.get("protocol_version") != config.PROTOCOL_VERSION:
+            logger.warning(
+                "received unsupported protocol during plan sender=%s version=%s",
+                sender,
+                msg.get("protocol_version"),
+            )
+            continue
+
+        if msg.get("message_type") != config.MESSAGE_TYPE_AGENT_MSG:
+            return received
+
+        agent_message = _queue_agent_message(turn_messages, sender, msg)
+        if agent_message is None:
+            continue
+
+        _append_chat_context(
+            recent_agent_messages,
+            {
+                "direction": "incoming",
+                "from": agent_message["from"],
+                "tick": agent_message.get("tick"),
+                "message": agent_message["message"],
+            },
+        )
+        phase_messages.append(
+            {
+                "direction": "incoming",
+                "from": agent_message["from"],
+                "tick": agent_message.get("tick"),
+                "message": agent_message["message"],
+            }
+        )
+        demo_log(
+            logger,
+            "%s: %s",
+            _agent_label_from_public_key(state, agent_message["from"]),
+            _one_line(agent_message["message"], 240),
+        )
+        if runtime is not None:
+            runtime.record_chat(
+                state.sim_state,
+                "incoming",
+                agent_message["from"],
+                agent_message["message"],
+                {"mode": "plan_phase"},
+            )
+    return None
+
+
+def _plan_phase_prompt(
+    state: State,
+    turn_messages: list[dict[str, Any]],
+    recent_agent_messages: list[dict[str, Any]],
+    plan_talk_budget: float,
+) -> str:
+    agent = _agent_state(state)
+    talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
+    return "\n".join(
+        [
+            "Talk phase: talk briefly with visible agents before final actions are chosen.",
+            f"Tick: {state.tick}",
+            f"Phase: {state.sim_state.get('phase', 'day')}",
+            f"Temperature: {_number(state.sim_state.get('temp'))}C",
+            f"Plan talk budget: {plan_talk_budget:.2f}; talk_to cost: {talk_budget:.2f}; max messages: {config.MAX_PLAN_MESSAGES_PER_TICK}",
+            "Action choices are decided later; this phase only sends chat.",
+            (
+                f"You: {_agent_label(agent)} at {_position_text(agent.get('position'))}; "
+                f"health={_number(agent.get('health'))}, hunger={_number(agent.get('hunger'))}, "
+                f"thirst={_number(agent.get('thirst'))}, warmth={_number(agent.get('warmth'))}, "
+                f"carry={_number(agent.get('inventory_weight'))}/{_number(agent.get('carry_capacity'))}"
+            ),
+            f"Inventory: {_inventory_text(agent.get('inventory'))}",
+            f"Current tile resources: {_current_tile_resources_text(state)}",
+            "Visible map:",
+            _render_visible_map(state),
+            f"Talk recipients: {_talk_recipients_text(state)}",
+            f"Incoming now: {_chat_messages_text(turn_messages)}",
+            f"Recent chat: {_chat_messages_text(recent_agent_messages)}",
+        ]
+    )
+
+
+def _summarize_talk_phase(state: State, phase_messages: list[dict[str, Any]]) -> str:
+    if not phase_messages:
+        return ""
+    fallback = _fallback_talk_summary(state, phase_messages)
+    response = get_summary_response(_talk_summary_prompt(state, phase_messages))
+    summary = response.get("summary", "").strip()
+    return summary or fallback
+
+
+def _talk_summary_prompt(state: State, phase_messages: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        [
+            f"Tick: {state.tick}",
+            "Talk transcript:",
+            _chat_messages_text(phase_messages),
+        ]
+    )
+
+
+def _fallback_talk_summary(state: State, phase_messages: list[dict[str, Any]]) -> str:
+    lines = []
+    for message in phase_messages[-4:]:
+        peer = message.get("from") or message.get("to") or message.get("peer") or "?"
+        label = _agent_label_from_public_key(state, peer)
+        lines.append(f"{label}: {_one_line(str(message.get('message', '')), 120)}")
+    return " | ".join(lines)
+
+
+def _valid_talk_recipients(state: State) -> set[str]:
+    recipients = set()
+    for action in state.get_valid_actions():
+        if action.get("action") != "talk_to":
+            continue
+        target = action.get("target")
+        if isinstance(target, str):
+            recipients.add(target)
+        elif isinstance(target, dict) and isinstance(target.get("public_key"), str):
+            recipients.add(target["public_key"])
+    return recipients
+
+
+def _talk_recipients_text(state: State) -> str:
+    recipients = sorted(_valid_talk_recipients(state))
+    if not recipients:
+        return "none"
+    return ", ".join(f"{_agent_label_from_public_key(state, recipient)}={recipient}" for recipient in recipients)
+
+
+def _chat_messages_text(messages: list[dict[str, Any]]) -> str:
+    if not messages:
+        return "none"
+    lines = []
+    for message in messages[-config.CHAT_CONTEXT_LIMIT:]:
+        direction = message.get("direction")
+        peer = message.get("from") or message.get("to") or message.get("peer") or "?"
+        lines.append(f"{direction or 'incoming'} {peer}: {_one_line(str(message.get('message', '')), 180)}")
+    return "\n".join(lines)
+
+
+def _filter_plan_messages(
+    messages: list[dict[str, Any]],
+    state: State,
+    plan_talk_budget: float,
+) -> list[dict[str, str]]:
+    talk_budget = _talk_to_budget(state) or config.CHAT_ACTION_BUDGET
+    max_by_budget = int(plan_talk_budget // max(talk_budget, 0.0001))
+    max_messages = max(0, min(config.MAX_PLAN_MESSAGES_PER_TICK, max_by_budget))
+    if max_messages <= 0:
+        return []
+
+    valid_recipients = _valid_talk_recipients(state)
+    selected = []
+    seen_recipients = set()
+    for raw_message in messages[: config.MAX_PLAN_MESSAGES_PER_TICK]:
+        recipient = raw_message.get("recipient")
+        content = raw_message.get("content")
+        if not isinstance(recipient, str) or recipient not in valid_recipients:
+            logger.warning("skipping plan message without valid talk recipient raw_message=%s", raw_message)
+            continue
+        if recipient in seen_recipients:
+            continue
+        if not isinstance(content, str) or not content.strip():
+            continue
+        selected.append(
+            {
+                "recipient": recipient,
+                "content": content.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
+            }
+        )
+        seen_recipients.add(recipient)
+        if len(selected) >= max_messages:
+            break
+    return selected
+
+
 def _send_llm_response(
     llm_response: dict[str, Any],
     state: State,
     self_public_key: str,
+    *,
+    action_budget: float | None = None,
+    allow_talk: bool = True,
+    prefix_actions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    prefix_actions = list(prefix_actions or [])
     actions = _filter_actions(
         llm_response.get("actions", []),
         state.get_valid_actions(),
-        _agent_action_budget(state),
+        _agent_action_budget(state) if action_budget is None else action_budget,
+        allow_talk=allow_talk,
     )
     if not actions:
         wait_action = _default_wait_action(state.get_valid_actions())
@@ -243,13 +589,13 @@ def _send_llm_response(
             actions = [wait_action]
             logger.info("using fallback wait action tick=%s", state.tick)
 
-    actions = _talk_actions_first(actions)
+    actions = _talk_actions_first(prefix_actions + actions)
     tick = state.tick
     logger.info("accepted actions tick=%s actions=%s", tick, actions)
     demo_log(logger, "Decision: %s", _demo_actions(actions, state))
 
     talk_recipients = _talk_recipients(actions)
-    accepted_messages = _filter_agent_messages(llm_response.get("messages", []), talk_recipients)
+    accepted_messages = _filter_agent_messages(llm_response.get("messages", []), talk_recipients) if allow_talk else []
     talk_actions = [action for action in actions if action.get("action") == "talk_to"]
     non_talk_actions = [action for action in actions if action.get("action") != "talk_to"]
 
@@ -280,6 +626,8 @@ def _filter_actions(
     actions: list[dict[str, Any]],
     valid_actions: list[dict[str, Any]],
     action_budget: float,
+    *,
+    allow_talk: bool = True,
 ) -> list[dict[str, Any]]:
     valid_action_specs = _valid_action_specs(valid_actions)
     remaining_budget = max(0.0, action_budget)
@@ -289,6 +637,10 @@ def _filter_actions(
         action = _wire_action(raw_action)
         if action is None:
             logger.warning("skipping invalid LLM action raw_action=%s", raw_action)
+            continue
+
+        if not allow_talk and action["action"] == "talk_to":
+            logger.info("skipping action-phase talk_to; planning chat phase handles talk")
             continue
 
         spec = valid_action_specs.get(action["action"])
@@ -484,7 +836,6 @@ def _try_direct_chat_reply(
     if not reply:
         return
 
-    _send_agent_action({"action": "talk_to", "target": recipient}, None, self_public_key)
     direct_chat_budget_by_tick[tick] = spent + talk_budget
     demo_log(logger, "You -> %s: %s", sender_label, _one_line(reply, 240))
     if runtime is not None:
