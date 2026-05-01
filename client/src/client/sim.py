@@ -638,8 +638,6 @@ def _send_llm_response(
     talk_actions = [action for action in actions if action.get("action") == "talk_to"]
     non_talk_actions = [action for action in actions if action.get("action") != "talk_to"]
 
-    for action in talk_actions:
-        _send_agent_action(action, tick, self_public_key)
     for message in accepted_messages:
         demo_log(
             logger,
@@ -648,8 +646,7 @@ def _send_llm_response(
             _one_line(message["content"], 240),
         )
         _send_agent_message(message["recipient"], message["content"], tick, self_public_key)
-    for action in non_talk_actions:
-        _send_agent_action(action, tick, self_public_key)
+    _send_agent_actions(talk_actions + non_talk_actions, tick, self_public_key)
 
     return {"actions": actions, "messages": accepted_messages}
 
@@ -785,6 +782,24 @@ def _send_agent_action(action: dict[str, Any], tick: int | None, self_public_key
     }
     axl.send(message, config.SERVER_PUBLIC_KEY)
     logger.info("sent AGENT_ACTION tick=%s action=%s server=%s", tick, action, config.SERVER_PUBLIC_KEY)
+
+
+def _send_agent_actions(actions: list[dict[str, Any]], tick: int | None, self_public_key: str) -> None:
+    content = {
+        "sender_public_key": self_public_key,
+        "actions": actions,
+    }
+    if tick is not None:
+        content["tick"] = tick
+
+    message = {
+        "protocol_version": config.PROTOCOL_VERSION,
+        "message_type": config.MESSAGE_TYPE_AGENT_ACTION,
+        "sender_public_key": self_public_key,
+        "content": content,
+    }
+    axl.send(message, config.SERVER_PUBLIC_KEY)
+    logger.info("sent AGENT_ACTION batch tick=%s actions=%s server=%s", tick, actions, config.SERVER_PUBLIC_KEY)
 
 
 def _send_agent_message(recipient: str, content: str, tick: int, self_public_key: str) -> None:

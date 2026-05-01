@@ -1,4 +1,5 @@
-from time import monotonic, sleep
+from threading import Condition
+from time import monotonic
 from typing import Any
 import logging
 import random
@@ -38,6 +39,9 @@ class Simulation:
         self.event_log: list[dict[str, Any]] = []
         self.active_events: list[dict[str, Any]] = []
         self.pending_trade_offers: list[dict[str, Any]] = []
+        self._action_condition = Condition()
+        self._action_submissions: dict[int, set[int]] = {}
+        self._accepting_action_tick: int | None = None
         self.replay_store = _replay_store()
         self._demo_previous_agents: dict[int, dict[str, Any]] = {}
         self._demo_previous_temp: float | None = None
@@ -73,6 +77,7 @@ class Simulation:
         self._persist_tick("start")
 
         # create state prompt for agents and send it
+        self._begin_action_submissions(self.iteration)
         send_states_to_agents(self)
         self._wait_for_actions()
         # actions must have been received... continue with processing
@@ -83,6 +88,8 @@ class Simulation:
             self.pre_action_effects(agent)
             self.process_actions(agent)
             self.base_effects(agent)
+
+        self._clear_action_submissions(self.iteration)
 
         self._finish_if_terminal()
         if not self.game_over:
@@ -126,25 +133,89 @@ class Simulation:
 
     def _wait_for_actions(self):
         wait_seconds = max(0.0, TICK_TIMEOUT_SECONDS)
-        logger.info("waiting for actions sim_id=%s tick=%s seconds=%s", self.id, self.iteration, wait_seconds)
+        expected_agent_ids = {agent.id for agent in self.agents if agent.alive}
+        logger.info(
+            "waiting for actions sim_id=%s tick=%s seconds=%s expected_agents=%s",
+            self.id,
+            self.iteration,
+            wait_seconds,
+            sorted(expected_agent_ids),
+        )
+        if not expected_agent_ids:
+            self._end_action_submissions(self.iteration)
+            return
         if wait_seconds <= 0:
+            self._end_action_submissions(self.iteration)
             return
 
-        if not is_demo_logging():
-            sleep(wait_seconds)
-            return
-
+        started = monotonic()
         deadline = monotonic() + wait_seconds
         label = f"Waiting for actions | sim {self.id[:8]} tick {self.iteration}"
-        while True:
-            remaining = max(0.0, deadline - monotonic())
-            sys.stdout.write(f"\r{label} | {remaining:5.1f}s left")
+        show_progress = is_demo_logging()
+
+        with self._action_condition:
+            while True:
+                submitted_agent_ids = self._action_submissions.get(self.iteration, set())
+                missing_agent_ids = expected_agent_ids - submitted_agent_ids
+                if not missing_agent_ids:
+                    elapsed = monotonic() - started
+                    logger.info(
+                        "all actions received sim_id=%s tick=%s received=%s/%s elapsed=%.2f",
+                        self.id,
+                        self.iteration,
+                        len(submitted_agent_ids & expected_agent_ids),
+                        len(expected_agent_ids),
+                        elapsed,
+                    )
+                    break
+
+                remaining = max(0.0, deadline - monotonic())
+                if show_progress:
+                    sys.stdout.write(
+                        f"\r{label} | {remaining:5.1f}s left | "
+                        f"{len(expected_agent_ids) - len(missing_agent_ids)}/{len(expected_agent_ids)} received"
+                    )
+                    sys.stdout.flush()
+                if remaining <= 0:
+                    logger.info(
+                        "action wait timed out sim_id=%s tick=%s received=%s/%s missing_agents=%s",
+                        self.id,
+                        self.iteration,
+                        len(expected_agent_ids) - len(missing_agent_ids),
+                        len(expected_agent_ids),
+                        sorted(missing_agent_ids),
+                    )
+                    break
+
+                self._action_condition.wait(timeout=min(0.25, remaining) if show_progress else remaining)
+
+        if show_progress:
+            sys.stdout.write("\n")
             sys.stdout.flush()
-            if remaining <= 0:
-                break
-            sleep(min(0.25, remaining))
-        sys.stdout.write("\n")
-        sys.stdout.flush()
+        self._end_action_submissions(self.iteration)
+
+    def _begin_action_submissions(self, iteration: int):
+        with self._action_condition:
+            self._action_submissions.pop(iteration, None)
+            self._accepting_action_tick = iteration
+
+    def accepts_action_submission(self, iteration: int) -> bool:
+        with self._action_condition:
+            return self._accepting_action_tick == iteration
+
+    def _end_action_submissions(self, iteration: int):
+        with self._action_condition:
+            if self._accepting_action_tick == iteration:
+                self._accepting_action_tick = None
+
+    def record_action_submission(self, agent: Agent, iteration: int):
+        with self._action_condition:
+            self._action_submissions.setdefault(iteration, set()).add(agent.id)
+            self._action_condition.notify_all()
+
+    def _clear_action_submissions(self, iteration: int):
+        with self._action_condition:
+            self._action_submissions.pop(iteration, None)
 
 
     def record_action(self, agent: Agent, action: Action):

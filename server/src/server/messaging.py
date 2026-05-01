@@ -100,19 +100,57 @@ def handle_agent_action(sender: str, msg: dict, state: State):
 
     try:
         tick = _extract_action_tick(content, msg, sim_instance.iteration)
-        action = Action.from_dict(_extract_action_payload(content, msg))
+        action_payloads, is_batch = _extract_action_payloads(content, msg)
     except (TypeError, ValueError) as exc:
         logger.warning("invalid AGENT_ACTION sender=%s error=%s payload=%s", sender, exc, msg)
         return
 
-    agent.queue_action(tick, action)
+    if tick < sim_instance.iteration:
+        logger.info(
+            "discard stale AGENT_ACTION sim_id=%s sender=%s agent=%s tick=%s current_tick=%s",
+            sim_instance.id,
+            agent_public_key,
+            agent.id,
+            tick,
+            sim_instance.iteration,
+        )
+        return
+
+    if not sim_instance.accepts_action_submission(tick):
+        logger.info(
+            "discard AGENT_ACTION outside wait window sim_id=%s sender=%s agent=%s tick=%s current_tick=%s",
+            sim_instance.id,
+            agent_public_key,
+            agent.id,
+            tick,
+            sim_instance.iteration,
+        )
+        return
+
+    actions = []
+    for action_payload in action_payloads:
+        try:
+            actions.append(Action.from_dict(action_payload))
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "invalid AGENT_ACTION item sender=%s error=%s payload=%s",
+                sender,
+                exc,
+                action_payload,
+            )
+            if not is_batch:
+                return
+
+    if actions:
+        agent.queue_actions(tick, actions)
+    sim_instance.record_action_submission(agent, tick)
     logger.info(
-        "queued action sim_id=%s sender=%s agent=%s tick=%s action=%s",
+        "queued action submission sim_id=%s sender=%s agent=%s tick=%s actions=%s",
         sim_instance.id,
         agent_public_key,
         agent.id,
         tick,
-        action.to_dict(),
+        [action.to_dict() for action in actions],
     )
 
 
@@ -141,29 +179,45 @@ def _extract_action_tick(content: object, msg: dict, default_tick: int) -> int:
     return default_tick
 
 
-def _extract_action_payload(content: object, msg: dict) -> object:
+def _extract_action_payloads(content: object, msg: dict) -> tuple[list[object], bool]:
     if isinstance(content, dict):
+        nested_actions = content.get("actions")
+        if nested_actions is not None:
+            if not isinstance(nested_actions, list):
+                raise ValueError("Action batch payload must be a list")
+            return nested_actions, True
+
         nested_action = content.get("action")
         if isinstance(nested_action, dict):
-            return nested_action
+            return [nested_action], False
         if isinstance(nested_action, str):
-            return {
-                key: value
-                for key, value in content.items()
-                if key not in ("tick", "iteration")
-            }
+            return [
+                {
+                    key: value
+                    for key, value in content.items()
+                    if key not in ("tick", "iteration")
+                }
+            ], False
         if "action_type" in content or "type" in content:
-            return {
-                key: value
-                for key, value in content.items()
-                if key not in ("tick", "iteration")
-            }
+            return [
+                {
+                    key: value
+                    for key, value in content.items()
+                    if key not in ("tick", "iteration")
+                }
+            ], False
+
+    nested_actions = msg.get("actions")
+    if nested_actions is not None:
+        if not isinstance(nested_actions, list):
+            raise ValueError("Action batch payload must be a list")
+        return nested_actions, True
 
     nested_action = msg.get("action")
     if nested_action is not None:
-        return nested_action
+        return [nested_action], False
 
-    return msg
+    return [msg], False
 
 
 async def recv_loop(state: State):

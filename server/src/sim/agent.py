@@ -131,8 +131,11 @@ class Agent:
         return max(0, int(remaining // weight))
 
     def queue_action(self, iteration: int, action: Action):
+        self.queue_actions(iteration, [action])
+
+    def queue_actions(self, iteration: int, actions: list[Action]):
         with self.actions_lock:
-            self.actions.setdefault(iteration, []).append(action)
+            self.actions.setdefault(iteration, []).extend(actions)
 
     def pop_actions(self, iteration: int) -> list[Action]:
         with self.actions_lock:
