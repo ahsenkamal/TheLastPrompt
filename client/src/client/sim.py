@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 def client_loop(self_public_key: str, runtime: Any | None = None):
     state: State | None = None
     pending_agent_messages: list[dict[str, Any]] = []
+    recent_agent_messages: list[dict[str, Any]] = []
     direct_chat_budget_by_tick: dict[int, float] = {}
     server_sender = config.SERVER_PEER_ID or config.SERVER_PUBLIC_KEY
     logger.info(
@@ -50,6 +51,16 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
         logger.info("received message sender=%s type=%s", sender, message_type)
         if message_type == config.MESSAGE_TYPE_AGENT_MSG:
             agent_message = _queue_agent_message(pending_agent_messages, sender, msg)
+            if agent_message is not None:
+                _append_chat_context(
+                    recent_agent_messages,
+                    {
+                        "direction": "incoming",
+                        "from": agent_message["from"],
+                        "tick": agent_message.get("tick"),
+                        "message": agent_message["message"],
+                    },
+                )
             if agent_message is not None and state is not None:
                 _try_direct_chat_reply(
                     agent_message,
@@ -91,7 +102,7 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
             state = State(received_state)
         else:
             state.update(received_state)
-        state.set_agent_messages(pending_agent_messages)
+        state.set_agent_messages(pending_agent_messages, recent_agent_messages)
         if runtime is not None:
             runtime.record_state(state.sim_state, pending_agent_messages)
         _prune_direct_chat_budget(direct_chat_budget_by_tick, state.tick)
@@ -132,6 +143,16 @@ def client_loop(self_public_key: str, runtime: Any | None = None):
 
         # send response to server
         accepted = _send_llm_response(llm_response, state, self_public_key)
+        for message in accepted["messages"]:
+            _append_chat_context(
+                recent_agent_messages,
+                {
+                    "direction": "outgoing",
+                    "to": message["recipient"],
+                    "tick": state.tick,
+                    "message": message["content"],
+                },
+            )
         if runtime is not None:
             runtime.record_decision(state.sim_state, llm_response, accepted)
 
@@ -200,6 +221,12 @@ def _agent_message_sender(transport_sender: str, content: object) -> str:
     return transport_sender
 
 
+def _append_chat_context(chat_context: list[dict[str, Any]], message: dict[str, Any]) -> None:
+    chat_context.append(message)
+    if len(chat_context) > config.CHAT_CONTEXT_LIMIT:
+        del chat_context[:-config.CHAT_CONTEXT_LIMIT]
+
+
 def _send_llm_response(
     llm_response: dict[str, Any],
     state: State,
@@ -216,14 +243,18 @@ def _send_llm_response(
             actions = [wait_action]
             logger.info("using fallback wait action tick=%s", state.tick)
 
+    actions = _talk_actions_first(actions)
     tick = state.tick
     logger.info("accepted actions tick=%s actions=%s", tick, actions)
     demo_log(logger, "Decision: %s", _demo_actions(actions, state))
-    for action in actions:
-        _send_agent_action(action, tick, self_public_key)
 
     talk_recipients = _talk_recipients(actions)
     accepted_messages = _filter_agent_messages(llm_response.get("messages", []), talk_recipients)
+    talk_actions = [action for action in actions if action.get("action") == "talk_to"]
+    non_talk_actions = [action for action in actions if action.get("action") != "talk_to"]
+
+    for action in talk_actions:
+        _send_agent_action(action, tick, self_public_key)
     for message in accepted_messages:
         demo_log(
             logger,
@@ -232,8 +263,17 @@ def _send_llm_response(
             _one_line(message["content"], 240),
         )
         _send_agent_message(message["recipient"], message["content"], tick, self_public_key)
+    for action in non_talk_actions:
+        _send_agent_action(action, tick, self_public_key)
 
     return {"actions": actions, "messages": accepted_messages}
+
+
+def _talk_actions_first(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        *[action for action in actions if action.get("action") == "talk_to"],
+        *[action for action in actions if action.get("action") != "talk_to"],
+    ]
 
 
 def _filter_actions(

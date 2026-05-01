@@ -84,7 +84,7 @@ ACTION_DESCRIPTIONS: dict[ActionType, str] = {
     ActionType.WARMUP: "Consume wood and fuel to create fire to improve warmth.",
     ActionType.TRAIN: "Increase strength.",
     ActionType.CHANGE_STANCE: "Switch between normal and sneak movement/visibility.",
-    ActionType.MOVE: "Move to a visible tile.",
+    ActionType.MOVE: "Move to any listed visible passable tile, including diagonals.",
     ActionType.CHANGE_STATUS: "Switch between normal and guarding.",
     ActionType.CREATE_SHELTER: "Consume materials to create shelter on a tile.",
     ActionType.ATTACK: "Attack a visible agent.",

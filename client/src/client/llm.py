@@ -79,13 +79,15 @@ SYSTEM_PROMPT = """
 You are choosing one turn for a survival simulation agent.
 Return only JSON that matches the provided schema.
 Choose actions from the valid_actions list in the prompt.
-Fill required fields using agent, visible_map, inventory, and incoming_agent_messages.
+Fill required fields using agent, visible_map, inventory, incoming_agent_messages, and recent_agent_messages.
 Use coordinates from visible_map, resource names from inventory/resources, and public keys from visible occupants.
 The sum of selected action budgets must be <= agent.action_budget.
 Do not pick up or request resources if carrying them would exceed carry_capacity.
 Do not say you have or can trade an item unless it is present in agent.inventory; visible_map resources are on the ground.
+Move can use any valid move target, including diagonal targets.
+Treat hunger >70, thirst >50, and warmth <30 as urgent survival problems.
 For trade, use consumable as the resource you offer and item as the resource you request; trade only resolves when both agents submit matching trade actions.
-Use messages only when you also choose a valid talk_to action for the same recipient public key.
+Use messages only when you also choose a valid talk_to action for the same recipient public key; put talk_to before movement, combat, or gathering when talking and acting in the same tick.
 Do not include explanations, markdown, or keys outside the schema.
 """
 

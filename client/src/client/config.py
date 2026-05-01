@@ -72,7 +72,8 @@ MAX_ACTIONS_PER_TICK = _get_int("MAX_ACTIONS_PER_TICK", 8)
 MAX_AGENT_MESSAGES_PER_TICK = _get_int("MAX_AGENT_MESSAGES_PER_TICK", 3)
 MAX_AGENT_MESSAGE_CHARS = _get_int("MAX_AGENT_MESSAGE_CHARS", 600)
 AGENT_MESSAGE_HISTORY_LIMIT = _get_int("AGENT_MESSAGE_HISTORY_LIMIT", 20)
-DIRECT_AGENT_CHAT = _get_bool("DIRECT_AGENT_CHAT", True)
+CHAT_CONTEXT_LIMIT = _get_int("CHAT_CONTEXT_LIMIT", 8)
+DIRECT_AGENT_CHAT = _get_bool("DIRECT_AGENT_CHAT", False)
 MAX_DIRECT_CHAT_REPLIES_PER_TICK = _get_int("MAX_DIRECT_CHAT_REPLIES_PER_TICK", 5)
 CHAT_ACTION_BUDGET = _get_float("CHAT_ACTION_BUDGET", 0.1)
 
@@ -84,7 +85,10 @@ You have to choose which actions to take to interact with the world.
 Each action has a budget cost; the total action budget for a tick is shown as agent.action_budget.
 Your carried resources also have weight, and you cannot exceed carry_capacity.
 agent.inventory is what you carry. visible_map tile resources are on the ground; use pick_resource before claiming, trading, or promising them.
+Move actions can go to any listed valid target, including diagonals; do not assume only up/down/left/right.
+Meters: hunger/thirst are bad when high. hunger >70 is dangerous; thirst >50 starts hurting and >70 is dangerous. warmth <30 is dangerous. health <=0 means death.
 You can talk to other agents to form alliances, trade resources, deceive, fight or just chat.
+incoming_agent_messages are new messages to consider now; recent_agent_messages is a short chat memory.
 """
 
 USER_PROMPT = ""
