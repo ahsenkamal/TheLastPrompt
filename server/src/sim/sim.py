@@ -10,7 +10,7 @@ from .action import Action, ActionType, execute_action, valid_action
 from .coordinator import send_states_to_agents
 from common.replay_store import ReplayStore
 from common.logging_config import color_delta, demo_log
-from server.config import REPLAY_DB_PATH, SIM_MAX_TICKS
+from server.config import REPLAY_DB_PATH, SIM_MAX_TICKS, TICK_TIMEOUT_SECONDS
 
 
 logger = logging.getLogger(__name__)
@@ -74,8 +74,8 @@ class Simulation:
         # create state prompt for agents and send it
         send_states_to_agents(self)
         # sleep for 1 min
-        logger.info("waiting for actions sim_id=%s tick=%s seconds=60", self.id, self.iteration)
-        sleep(60)
+        logger.info("waiting for actions sim_id=%s tick=%s seconds=%s", self.id, self.iteration, TICK_TIMEOUT_SECONDS)
+        sleep(TICK_TIMEOUT_SECONDS)
         # actions must have been received... continue with processing
 
         self.pending_trade_offers = []

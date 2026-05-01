@@ -17,9 +17,17 @@ def _get_int(name: str, default: int) -> int:
     return int(value)
 
 
+def _get_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return float(value)
+
+
 # SIM
 AGENTS_IN_SIM = 2
 SIM_MAX_TICKS = 100
+TICK_TIMEOUT_SECONDS = _get_float("TICK_TIMEOUT_SECONDS", 60.0)
 
 # MAP
 MAP_SIZE = 5
