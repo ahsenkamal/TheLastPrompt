@@ -332,15 +332,27 @@ def execute_action(sim: "Simulation", agent: "Agent", action: Action | dict[str,
 
 
 def create_valid_actions(sim: "Simulation", agent: "Agent") -> list[dict[str, Any]]:
-    action_types = []
+    action_specs = []
+    action_specs_by_type = {}
+    talk_targets = []
     seen = set()
     for action in _create_valid_action_objects(sim, agent):
         if action.action_type in seen:
+            if action.action_type == ActionType.TALK_TO and isinstance(action.target, str):
+                talk_targets.append(action.target)
             continue
-        seen.add(action.action_type)
-        action_types.append(action.action_type)
 
-    return [_action_spec(action_type) for action_type in action_types]
+        seen.add(action.action_type)
+        spec = _action_spec(action.action_type)
+        action_specs.append(spec)
+        action_specs_by_type[action.action_type] = spec
+        if action.action_type == ActionType.TALK_TO and isinstance(action.target, str):
+            talk_targets.append(action.target)
+
+    if talk_targets and ActionType.TALK_TO in action_specs_by_type:
+        action_specs_by_type[ActionType.TALK_TO]["targets"] = sorted(set(talk_targets))
+
+    return action_specs
 
 
 def _action_spec(action_type: ActionType) -> dict[str, Any]:

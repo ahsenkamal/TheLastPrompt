@@ -383,6 +383,7 @@ def _run_talk_phase(
             turn_messages,
             recent_agent_messages,
             phase_messages,
+            sent_recipients,
             runtime,
         )
         if result["deferred_received"] is not None:
@@ -408,8 +409,10 @@ def _collect_talk_replies(
     turn_messages: list[dict[str, Any]],
     recent_agent_messages: list[dict[str, Any]],
     phase_messages: list[dict[str, Any]],
+    expected_recipients: set[str],
     runtime: Any | None,
 ) -> tuple[str, str] | None:
+    replied_recipients: set[str] = set()
     deadline = time.monotonic() + config.TALK_PHASE_SECONDS
     while time.monotonic() < deadline:
         received = axl.recv()
@@ -468,6 +471,15 @@ def _collect_talk_replies(
                 agent_message["message"],
                 {"mode": "talk_phase"},
             )
+        message_tick = agent_message.get("tick")
+        if (
+            agent_message["from"] in expected_recipients
+            and (message_tick is None or message_tick == state.tick)
+        ):
+            replied_recipients.add(agent_message["from"])
+            if replied_recipients >= expected_recipients:
+                demo_log(logger, "Talk phase: all contacted agents replied")
+                return None
     return None
 
 
@@ -497,6 +509,7 @@ def _talk_phase_prompt(
             f"Current tile resources: {_current_tile_resources_text(state)}",
             "Visible map:",
             _render_visible_map(state),
+            f"Visible agents: {_visible_agents_text(state)}",
             f"Talk recipients: {_talk_recipients_text(state)}",
             f"Incoming now: {_chat_messages_text(turn_messages)}",
             f"Recent chat: {_chat_messages_text(recent_agent_messages)}",
@@ -533,15 +546,43 @@ def _fallback_talk_summary(state: State, phase_messages: list[dict[str, Any]]) -
 
 
 def _valid_talk_recipients(state: State) -> set[str]:
-    recipients = set()
+    recipients = _visible_talk_recipients(state)
     for action in state.get_valid_actions():
         if action.get("action") != "talk_to":
             continue
+        targets = action.get("targets", [])
+        if not isinstance(targets, list):
+            targets = []
+        for target in targets:
+            if isinstance(target, str):
+                recipients.add(target)
+            elif isinstance(target, dict) and isinstance(target.get("public_key"), str):
+                recipients.add(target["public_key"])
         target = action.get("target")
         if isinstance(target, str):
             recipients.add(target)
         elif isinstance(target, dict) and isinstance(target.get("public_key"), str):
             recipients.add(target["public_key"])
+    return recipients
+
+
+def _visible_talk_recipients(state: State) -> set[str]:
+    recipients = set()
+    self_agent = _agent_state(state)
+    self_id = self_agent.get("id")
+    self_public_key = self_agent.get("public_key")
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if not isinstance(occupant, dict) or not occupant.get("alive", True):
+                continue
+            public_key = occupant.get("public_key")
+            if not isinstance(public_key, str) or not public_key:
+                continue
+            if occupant.get("id") == self_id or public_key == self_public_key:
+                continue
+            recipients.add(public_key)
     return recipients
 
 
