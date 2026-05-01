@@ -79,7 +79,7 @@ class ClientRuntime:
         )
         self.store.record_event(sim_id, tick, "decision", f"Agent A{agent_id} chose {len(decision['actions'])} action(s)", decision)
         for message in decision["messages"]:
-            recipient = str(message.get("recipient", "?"))
+            recipient = str(message.get("recipient_label") or message.get("recipient", "?"))
             content = str(message.get("content", ""))
             if content:
                 self.record_chat(sim_state, "outgoing", recipient, content, {"mode": "turn_message"})

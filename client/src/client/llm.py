@@ -112,7 +112,8 @@ You are choosing the action phase for a survival simulation agent after a talk p
 Return only JSON that matches the provided schema.
 Choose actions from the valid_actions list in the prompt.
 Fill required fields using agent, visible_map, inventory, and talk_phase.summary.
-Use coordinates from visible_map, resource names from inventory/resources, and public keys from visible occupants.
+Use coordinates from visible_map, resource names from inventory/resources, and agent labels like A0 or A1 for visible agents.
+For talk_to, attack, and trade targets, return only the listed agent label string. Do not return public keys.
 The sum of selected action budgets must be <= agent.action_budget.
 Do not pick up or request resources if carrying them would exceed carry_capacity.
 Do not say you have or can trade an item unless it is present in agent.inventory; visible_map resources are on the ground.
@@ -128,7 +129,8 @@ PLAN_SYSTEM_PROMPT = """
 You are in the talk phase before actions in a survival simulation.
 Return only JSON that matches the provided schema.
 Choose at most the allowed talk messages.
-Use only listed talk recipients. Keep messages short, practical, and tied to the current tick.
+Use only listed talk recipient labels like A0 or A1. Do not return public keys.
+Keep messages short, practical, and tied to the current tick.
 Do not claim you carry resources unless they are in Inventory.
 Do not choose movement, eating, gathering, combat, or trade actions here; this phase is only for talking to agents.
 You may open, reply, coordinate, warn, deceive, threaten, or stay silent.

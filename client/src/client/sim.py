@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from . import config
 from common import axl
+from copy import deepcopy
 import time
 import json
 import logging
@@ -14,6 +15,7 @@ from .state import State
 from common.logging_config import demo_log
 
 ACTION_KEYS = ("action", "target", "consumable", "item")
+LABEL_TARGET_ACTIONS = {"attack", "trade", "talk_to"}
 ReceivedMessage = tuple[str, str]
 logger = logging.getLogger(__name__)
 
@@ -201,7 +203,7 @@ def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
         )
 
         # create prompt for user
-        final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + state.get_state_description()
+        final_prompt = config.BASE_PROMPT + "\n\n" + config.USER_PROMPT + "\n\n" + _llm_state_description(state)
         logger.debug("final prompt tick=%s\n%s", state.tick, final_prompt)
 
         # get llm response
@@ -718,6 +720,7 @@ def _talk_phase_prompt(
             "Visible map:",
             _render_visible_map(state),
             f"Visible agents: {_visible_agents_text(state)}",
+            "Use only agent labels such as A0 or A1 for chat recipients and social action targets.",
             f"All talk recipients: {_talk_recipients_text(state)}",
             f"Allowed recipients now: {_peer_list_text(state, allowed_recipients)}",
             f"Peers waiting for your reply: {_peer_list_text(state, pending_reply_peers)}",
@@ -803,14 +806,14 @@ def _talk_recipients_text(state: State) -> str:
     recipients = sorted(_valid_talk_recipients(state))
     if not recipients:
         return "none"
-    return ", ".join(f"{_agent_label_from_public_key(state, recipient)}={recipient}" for recipient in recipients)
+    return ", ".join(_agent_label_from_public_key(state, recipient) for recipient in recipients)
 
 
 def _peer_list_text(state: State, recipients: set[str]) -> str:
     if not recipients:
         return "none"
     return ", ".join(
-        f"{_agent_label_from_public_key(state, recipient)}={recipient}"
+        _agent_label_from_public_key(state, recipient)
         for recipient in sorted(recipients)
     )
 
@@ -847,9 +850,9 @@ def _filter_talk_messages(
     selected = []
     seen_recipients = set()
     for raw_message in messages[: config.MAX_TALK_MESSAGES_PER_TICK]:
-        recipient = raw_message.get("recipient")
+        recipient = _message_recipient_for_transport(state, raw_message.get("recipient"), valid_recipients)
         content = raw_message.get("content")
-        if not isinstance(recipient, str) or recipient not in valid_recipients:
+        if recipient is None:
             logger.warning("skipping talk message without valid talk recipient raw_message=%s", raw_message)
             continue
         if recipient in seen_recipients:
@@ -859,6 +862,7 @@ def _filter_talk_messages(
         selected.append(
             {
                 "recipient": recipient,
+                "recipient_label": _agent_label_from_public_key(state, recipient),
                 "content": content.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
             }
         )
@@ -884,6 +888,7 @@ def _send_llm_response(
         llm_response.get("actions", []),
         state.get_valid_actions(),
         _agent_action_budget(state) if action_budget is None else action_budget,
+        state,
         allow_talk=allow_talk,
     )
     if not actions:
@@ -903,7 +908,11 @@ def _send_llm_response(
     demo_log(logger, "Decision: %s | %s", _demo_actions(actions, state), budget_text)
 
     talk_recipients = _talk_recipients(actions)
-    accepted_messages = _filter_agent_messages(llm_response.get("messages", []), talk_recipients) if allow_talk else []
+    accepted_messages = (
+        _filter_agent_messages(llm_response.get("messages", []), talk_recipients, state)
+        if allow_talk
+        else []
+    )
     talk_actions = [action for action in actions if action.get("action") == "talk_to"]
     non_talk_actions = [action for action in actions if action.get("action") != "talk_to"]
 
@@ -931,6 +940,7 @@ def _filter_actions(
     actions: list[dict[str, Any]],
     valid_actions: list[dict[str, Any]],
     action_budget: float,
+    state: State,
     *,
     allow_talk: bool = True,
 ) -> list[dict[str, Any]]:
@@ -942,6 +952,10 @@ def _filter_actions(
         action = _wire_action(raw_action)
         if action is None:
             logger.warning("skipping invalid LLM action raw_action=%s", raw_action)
+            continue
+        action = _action_for_transport(action, state)
+        if action is None:
+            logger.warning("skipping LLM action with unresolved agent label raw_action=%s", raw_action)
             continue
 
         if not allow_talk and action["action"] == "talk_to":
@@ -1016,12 +1030,13 @@ def _valid_action_specs(valid_actions: list[dict[str, Any]]) -> dict[str, dict[s
 def _filter_agent_messages(
     messages: list[dict[str, Any]],
     talk_recipients: set[str],
+    state: State,
 ) -> list[dict[str, str]]:
     selected_messages = []
     for raw_message in messages[: config.MAX_AGENT_MESSAGES_PER_TICK]:
-        recipient = raw_message.get("recipient")
+        recipient = _message_recipient_for_transport(state, raw_message.get("recipient"), talk_recipients)
         content = raw_message.get("content")
-        if not isinstance(recipient, str) or recipient not in talk_recipients:
+        if recipient is None:
             logger.warning("skipping agent message without matching talk_to action raw_message=%s", raw_message)
             continue
         if not isinstance(content, str) or not content.strip():
@@ -1029,10 +1044,55 @@ def _filter_agent_messages(
         selected_messages.append(
             {
                 "recipient": recipient,
+                "recipient_label": _agent_label_from_public_key(state, recipient),
                 "content": content.strip()[: config.MAX_AGENT_MESSAGE_CHARS],
             }
         )
     return selected_messages
+
+
+def _message_recipient_for_transport(
+    state: State,
+    raw_recipient: Any,
+    allowed_public_keys: set[str],
+) -> str | None:
+    if not isinstance(raw_recipient, str):
+        return None
+
+    label = _normalize_agent_label(raw_recipient)
+    if label is None:
+        if raw_recipient in allowed_public_keys:
+            logger.warning("rejecting public-key recipient from LLM; use agent label like A1")
+        return None
+
+    public_key = _agent_public_key_from_label(state, label)
+    if public_key is None or public_key not in allowed_public_keys:
+        return None
+    return public_key
+
+
+def _action_for_transport(action: dict[str, Any], state: State) -> dict[str, Any] | None:
+    action_name = action.get("action")
+    if action_name not in LABEL_TARGET_ACTIONS:
+        return action
+
+    target = action.get("target")
+    label = _normalize_agent_label(target) if isinstance(target, str) else None
+    if label is None:
+        return None
+
+    if action_name == "talk_to":
+        public_key = _agent_public_key_from_label(state, label)
+        if public_key is None or public_key not in _valid_talk_recipients(state):
+            return None
+        action["target"] = public_key
+        return action
+
+    target_payload = _agent_target_from_label(state, label)
+    if target_payload is None or target_payload["public_key"] not in _visible_talk_recipients(state):
+        return None
+    action["target"] = target_payload
+    return action
 
 
 def _send_agent_action(action: dict[str, Any], tick: int | None, self_public_key: str) -> None:
@@ -1072,6 +1132,10 @@ def _send_agent_actions(actions: list[dict[str, Any]], tick: int | None, self_pu
 
 
 def _send_agent_message(recipient: str, content: str, tick: int, self_public_key: str) -> None:
+    if _normalize_agent_label(recipient) is not None:
+        logger.error("refusing to send AGENT_MSG to unresolved agent label recipient=%s", recipient)
+        return
+
     message = {
         "protocol_version": config.PROTOCOL_VERSION,
         "message_type": config.MESSAGE_TYPE_AGENT_MSG,
@@ -1082,7 +1146,7 @@ def _send_agent_message(recipient: str, content: str, tick: int, self_public_key
         },
     }
     axl.send(message, recipient)
-    logger.info("sent AGENT_MSG tick=%s recipient=%s message=%s", tick, recipient, content)
+    logger.info("sent AGENT_MSG tick=%s recipient_public_key=%s message=%s", tick, recipient, content)
 
 
 def _wire_action(raw_action: dict[str, Any]) -> dict[str, Any] | None:
@@ -1335,6 +1399,93 @@ def _results_block(state: State) -> str:
     return "\n".join(lines)
 
 
+def _llm_state_description(state: State) -> str:
+    prompt_state = _sanitize_llm_value(state, deepcopy(state.sim_state))
+    prompt_state["valid_actions"] = _llm_valid_actions(state)
+    prompt_state["incoming_agent_messages"] = _llm_chat_messages(state, state.agent_messages)
+    prompt_state["recent_agent_messages"] = _llm_chat_messages(state, state.recent_agent_messages)
+    prompt_state["talk_phase"] = _sanitize_llm_value(state, deepcopy(state.talk_phase))
+    prompt_state["state_history_length"] = len(state.state_history)
+    return json.dumps(prompt_state, indent=2, ensure_ascii=False)
+
+
+def _llm_valid_actions(state: State) -> list[dict[str, Any]]:
+    actions = []
+    for action in state.get_valid_actions():
+        prompt_action = _sanitize_llm_value(state, deepcopy(action))
+        action_name = prompt_action.get("action")
+        if action_name in LABEL_TARGET_ACTIONS:
+            prompt_action["target_format"] = "agent_label"
+            required_fields = prompt_action.get("required_fields")
+            if isinstance(required_fields, dict):
+                required_fields["target"] = "Agent label string, for example A1."
+
+            labels = _llm_action_target_labels(state, str(action_name))
+            if labels:
+                prompt_action["targets"] = labels
+        actions.append(prompt_action)
+    return actions
+
+
+def _llm_action_target_labels(state: State, action_name: str) -> list[str]:
+    if action_name == "talk_to":
+        public_keys = _valid_talk_recipients(state)
+    else:
+        public_keys = _visible_talk_recipients(state)
+
+    labels = [
+        _agent_label_from_public_key(state, public_key)
+        for public_key in sorted(public_keys)
+    ]
+    return [label for label in labels if label != "A?"]
+
+
+def _llm_chat_messages(state: State, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        _sanitize_llm_value(state, deepcopy(message))
+        for message in messages
+    ]
+
+
+def _sanitize_llm_value(state: State, value: Any) -> Any:
+    public_key_labels = _public_key_labels(state)
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        label = _llm_dict_agent_label(state, value)
+        for key, nested_value in value.items():
+            if key in {"public_key", "sender_public_key", "agent_public_key"}:
+                if label != "A?":
+                    result.setdefault("label", label)
+                continue
+            result[key] = _sanitize_llm_value(state, nested_value)
+
+        if label != "A?":
+            result.setdefault("label", label)
+        return result
+
+    if isinstance(value, list):
+        return [_sanitize_llm_value(state, item) for item in value]
+
+    if isinstance(value, str) and value in public_key_labels:
+        return public_key_labels[value]
+
+    return value
+
+
+def _llm_dict_agent_label(state: State, value: dict[str, Any]) -> str:
+    agent_id = value.get("id")
+    if not isinstance(agent_id, int):
+        agent_id = value.get("agent_id")
+    if isinstance(agent_id, int):
+        return f"A{agent_id}"
+
+    public_key = value.get("public_key") or value.get("sender_public_key") or value.get("agent_public_key")
+    if isinstance(public_key, str):
+        return _agent_label_from_public_key(state, public_key)
+
+    return "A?"
+
+
 def _demo_state_block(state: State) -> str:
     agent = _agent_state(state)
     status = "" if agent.get("alive", True) else f" dead:{agent.get('death_cause') or '?'}"
@@ -1510,6 +1661,9 @@ def _agent_label(agent: dict[str, Any]) -> str:
 
 def _agent_label_from_target(state: State, target: Any) -> str:
     if isinstance(target, dict):
+        label = _normalize_agent_label(target.get("label"))
+        if label is not None:
+            return label
         if "id" in target:
             return f"A{target['id']}"
         if isinstance(target.get("public_key"), str):
@@ -1517,8 +1671,76 @@ def _agent_label_from_target(state: State, target: Any) -> str:
     if isinstance(target, int):
         return f"A{target}"
     if isinstance(target, str):
+        label = _normalize_agent_label(target)
+        if label is not None:
+            return label
         return _agent_label_from_public_key(state, target)
     return "A?"
+
+
+def _normalize_agent_label(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if len(text) < 2 or text[0].upper() != "A" or not text[1:].isdigit():
+        return None
+    return f"A{int(text[1:])}"
+
+
+def _agent_public_key_from_label(state: State, label: str) -> str | None:
+    agent_id = _agent_id_from_label(label)
+    if agent_id is None:
+        return None
+
+    self_agent = _agent_state(state)
+    if self_agent.get("id") == agent_id and isinstance(self_agent.get("public_key"), str):
+        return self_agent["public_key"]
+
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if (
+                isinstance(occupant, dict)
+                and occupant.get("id") == agent_id
+                and isinstance(occupant.get("public_key"), str)
+            ):
+                return occupant["public_key"]
+    return None
+
+
+def _agent_target_from_label(state: State, label: str) -> dict[str, Any] | None:
+    agent_id = _agent_id_from_label(label)
+    public_key = _agent_public_key_from_label(state, label)
+    if agent_id is None or public_key is None:
+        return None
+    return {"id": agent_id, "public_key": public_key}
+
+
+def _agent_id_from_label(label: str) -> int | None:
+    normalized = _normalize_agent_label(label)
+    if normalized is None:
+        return None
+    return int(normalized[1:])
+
+
+def _public_key_labels(state: State) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    self_agent = _agent_state(state)
+    self_public_key = self_agent.get("public_key")
+    if isinstance(self_public_key, str) and self_public_key:
+        labels[self_public_key] = _agent_label(self_agent)
+
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if not isinstance(occupant, dict):
+                continue
+            public_key = occupant.get("public_key")
+            if isinstance(public_key, str) and public_key:
+                labels[public_key] = _agent_label(occupant)
+    return labels
 
 
 def _agent_label_from_public_key(state: State, public_key: Any) -> str:
@@ -1560,10 +1782,13 @@ def _agent_id_from_public_key(state: State, public_key: Any) -> int | None:
 
 
 def _chat_peer_label(state: State | None, public_key: Any) -> str:
+    label = _normalize_agent_label(public_key)
+    if label is not None:
+        return label
     if state is not None:
-        label = _agent_label_from_public_key(state, public_key)
-        if label != "A?":
-            return label
+        resolved_label = _agent_label_from_public_key(state, public_key)
+        if resolved_label != "A?":
+            return resolved_label
     if isinstance(public_key, str) and public_key:
         return public_key[:8]
     return "A?"
