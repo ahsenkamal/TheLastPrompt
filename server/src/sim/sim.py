@@ -8,11 +8,13 @@ from .types import *
 from .agent import Agent
 from .action import Action, ActionType, execute_action, valid_action
 from .coordinator import send_states_to_agents
+from common.replay_store import ReplayStore
 from common.logging_config import color_delta, demo_log
-from server.config import SIM_MAX_TICKS
+from server.config import REPLAY_DB_PATH, SIM_MAX_TICKS
 
 
 logger = logging.getLogger(__name__)
+_REPLAY_STORE: ReplayStore | None = None
 
 class Simulation:
     def __init__(self, sim_id, map: Map, agents: list[Agent], seed: int):
@@ -35,8 +37,11 @@ class Simulation:
         self.event_log: list[dict[str, Any]] = []
         self.active_events: list[dict[str, Any]] = []
         self.pending_trade_offers: list[dict[str, Any]] = []
+        self.replay_store = _replay_store()
         self._demo_previous_agents: dict[int, dict[str, Any]] = {}
         self._demo_previous_temp: float | None = None
+        self._persist_simulation("running")
+        self._persist_tick("created")
 
     def run(self):
         while not self.game_over and self.iteration < self.max_ticks:
@@ -60,6 +65,7 @@ class Simulation:
         )
         logger.info("tick map sim_id=%s tick=%s\n%s", self.id, self.iteration, self.map.render())
         logger.info("tick resources sim_id=%s tick=%s\n%s", self.id, self.iteration, self.map.render_resources())
+        self._persist_tick("start")
 
         # create state prompt for agents and send it
         send_states_to_agents(self)
@@ -91,7 +97,10 @@ class Simulation:
         if self.game_over:
             logger.info("simulation ended sim_id=%s tick=%s reason=%s results=%s", self.id, self.iteration, self.end_reason, self.results())
             demo_log(logger, self.results_text())
+            self._persist_simulation("finished")
             send_states_to_agents(self)
+        else:
+            self._persist_tick("end")
 
     def _log_demo_tick_start(self):
         temp = color_delta(self.temp, self._demo_previous_temp)
@@ -144,8 +153,20 @@ class Simulation:
             }
             self.kill_log.append(kill_event)
             demo_log(logger, "%s killed %s", _agent_label(killer), _agent_label(agent))
+            self.record_event(
+                f"{_agent_label(killer)} killed {_agent_label(agent)}",
+                event_type="kill",
+                x=killer.pos_x,
+                y=killer.pos_y,
+            )
         else:
             demo_log(logger, "%s died (%s)", _agent_label(agent), cause)
+            self.record_event(
+                f"{_agent_label(agent)} died ({cause})",
+                event_type="death",
+                x=agent.pos_x,
+                y=agent.pos_y,
+            )
 
     def enforce_agent_bounds(self, agent: Agent, cause: str = "health_depleted"):
         agent.recalculate_inventory()
@@ -309,6 +330,14 @@ class Simulation:
             "y": y,
         }
         self.event_log.append(event)
+        if self.replay_store is not None:
+            self.replay_store.record_event(
+                self.id,
+                self.iteration,
+                event_type,
+                message,
+                event,
+            )
         demo_log(logger, message)
 
 
@@ -383,6 +412,8 @@ class Simulation:
             for other_agent in self.agents:
                 if other_agent is not agent:
                     self.enforce_agent_bounds(other_agent)
+            after = _agent_snapshot(agent)
+            self._persist_action(agent, action, before, after)
             demo_log(logger, _demo_action_line(self, agent, action))
             logger.info(
                 "action result sim_id=%s tick=%s agent=%s before=%s after=%s remaining_budget=%.2f",
@@ -390,7 +421,7 @@ class Simulation:
                 self.iteration,
                 agent.id,
                 before,
-                _agent_snapshot(agent),
+                after,
                 remaining_budget,
             )
 
@@ -610,8 +641,61 @@ class Simulation:
     def _active_event(self, event_type: str) -> bool:
         return any(event["type"] == event_type for event in self.active_events)
 
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "sim_id": self.id,
+            "seed": self.seed,
+            "tick": self.iteration,
+            "temp": round(self.temp, 2),
+            "game_over": self.game_over,
+            "end_reason": self.end_reason,
+            "ended_tick": self.ended_tick,
+            "max_ticks": self.max_ticks,
+            "alive_count": sum(1 for agent in self.agents if agent.alive),
+            "agents": [_agent_snapshot(agent) for agent in sorted(self.agents, key=lambda item: item.id)],
+            "map": _map_snapshot(self.map),
+            "active_events": list(self.active_events),
+            "recent_events": list(self.event_log[-24:]),
+            "recent_trades": list(self.trade_log[-24:]),
+            "scoreboard": self.scoreboard(),
+            "results": self.results() if self.game_over else None,
+        }
+
+    def _persist_simulation(self, status: str):
+        if self.replay_store is None:
+            return
+        self.replay_store.upsert_simulation(
+            self.id,
+            seed=self.seed,
+            status=status,
+            summary=self.snapshot(),
+        )
+
+    def _persist_tick(self, kind: str):
+        if self.replay_store is None:
+            return
+        self.replay_store.record_tick(self.id, self.iteration, kind, self.snapshot())
+
+    def _persist_action(
+        self,
+        agent: Agent,
+        action: Action,
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ):
+        if self.replay_store is None:
+            return
+        self.replay_store.record_action(
+            self.id,
+            self.iteration,
+            agent.id,
+            action.to_dict(),
+            {"before": before, "after": after},
+        )
+
 
 def _agent_snapshot(agent: Agent) -> dict[str, Any]:
+    agent.recalculate_inventory()
     return {
         "id": agent.id,
         "public_key": agent.public_key,
@@ -638,6 +722,39 @@ def _agent_snapshot(agent: Agent) -> dict[str, Any]:
         "death_tick": agent.death_tick,
         "death_cause": agent.death_cause,
         "killed_by": agent.killed_by,
+    }
+
+
+def _map_snapshot(map_obj: Map) -> list[list[dict[str, Any]]]:
+    rows = []
+    for row in map_obj.grid:
+        rows.append([_tile_snapshot(tile) for tile in row])
+    return rows
+
+
+def _tile_snapshot(tile: Tile) -> dict[str, Any]:
+    return {
+        "x": tile.pos_x,
+        "y": tile.pos_y,
+        "type": tile.type.value,
+        "occupants": [agent.id for agent in tile.occupants if agent.alive],
+        "resources": {
+            str(resource): amount
+            for resource, amount in tile.resources.items()
+            if amount > 0
+        },
+        "shelters": list(tile.shelters.keys()),
+        "storages": {
+            owner: {
+                str(resource): amount
+                for resource, amount in storage.items()
+                if amount > 0
+            }
+            for owner, storage in tile.storages.items()
+        },
+        "crops": [crop.copy() for crop in tile.crops],
+        "traps": [trap.copy() for trap in getattr(tile, "traps", [])],
+        "hazard": tile.hazard,
     }
 
 
@@ -836,3 +953,12 @@ def _winner_ids(scoreboard: list[dict[str, Any]], end_reason: str | None) -> lis
             best["actions"],
         )
     ]
+
+
+def _replay_store() -> ReplayStore | None:
+    global _REPLAY_STORE
+    if not REPLAY_DB_PATH:
+        return None
+    if _REPLAY_STORE is None:
+        _REPLAY_STORE = ReplayStore(REPLAY_DB_PATH)
+    return _REPLAY_STORE
