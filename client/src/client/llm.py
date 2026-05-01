@@ -83,6 +83,7 @@ Fill required fields using agent, visible_map, inventory, and incoming_agent_mes
 Use coordinates from visible_map, resource names from inventory/resources, and public keys from visible occupants.
 The sum of selected action budgets must be <= agent.action_budget.
 Do not pick up or request resources if carrying them would exceed carry_capacity.
+Do not say you have or can trade an item unless it is present in agent.inventory; visible_map resources are on the ground.
 For trade, use consumable as the resource you offer and item as the resource you request; trade only resolves when both agents submit matching trade actions.
 Use messages only when you also choose a valid talk_to action for the same recipient public key.
 Do not include explanations, markdown, or keys outside the schema.
@@ -94,6 +95,7 @@ You are replying to another agent in a survival simulation.
 Use the current state context and the incoming message.
 Write only the chat message text to send back.
 Do not write JSON, markdown, labels, quotes, or explanations.
+Do not claim you carry resources unless they are in your inventory.
 Keep it short, practical, and in character.
 """
 

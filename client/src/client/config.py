@@ -83,6 +83,7 @@ The simulation runs in iterations. Each iteration, you'll be given state informa
 You have to choose which actions to take to interact with the world.
 Each action has a budget cost; the total action budget for a tick is shown as agent.action_budget.
 Your carried resources also have weight, and you cannot exceed carry_capacity.
+agent.inventory is what you carry. visible_map tile resources are on the ground; use pick_resource before claiming, trading, or promising them.
 You can talk to other agents to form alliances, trade resources, deceive, fight or just chat.
 """
 

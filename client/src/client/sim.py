@@ -621,6 +621,8 @@ def _demo_state_block(state: State) -> str:
             f"warmth={_number(agent.get('warmth'))} "
             f"carry={_number(agent.get('inventory_weight'))}/{_number(agent.get('carry_capacity'))}{status}"
         ),
+        f"Inventory: {_inventory_text(agent.get('inventory'))}",
+        f"Current tile resources: {_current_tile_resources_text(state)}",
         "Visible map:",
         _render_visible_map(state),
     ]
@@ -809,6 +811,20 @@ def _inventory_text(inventory: Any) -> str:
     if not isinstance(inventory, dict) or not inventory:
         return "empty"
     return ", ".join(f"{item}={amount}" for item, amount in inventory.items())
+
+
+def _current_tile_resources_text(state: State) -> str:
+    position = _agent_state(state).get("position")
+    if not isinstance(position, dict):
+        return "unknown"
+
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        if tile.get("x") == position.get("x") and tile.get("y") == position.get("y"):
+            resources = _inventory_text(tile.get("resources"))
+            return "none" if resources == "empty" else resources
+    return "unknown"
 
 
 def _target_text(target: Any) -> str:
