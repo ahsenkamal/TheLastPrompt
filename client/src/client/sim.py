@@ -12,6 +12,7 @@ from typing import Any
 
 from .llm import get_chat_response, get_llm_response, get_plan_response, get_summary_response
 from .state import State
+from common.identity import agent_display_name, profile_matches_name
 from common.logging_config import demo_log
 
 ACTION_KEYS = ("action", "target", "consumable", "item")
@@ -80,6 +81,10 @@ def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
     )
 
     while True:
+        if runtime is not None:
+            for profile in runtime.pop_profile_updates():
+                _send_agent_profile(profile, self_public_key)
+
         # wait for state update from server
         if deferred_received is not None:
             received = deferred_received
@@ -847,9 +852,9 @@ def _should_wait_for_peer_turn(
     tie_break_wait_peers.add(peer)
     demo_log(
         logger,
-        "Talk phase: simultaneous opener with %s; A%s waits for lower-id reply",
+        "Talk phase: simultaneous opener with %s; %s waits for lower-id reply",
         _agent_label_from_public_key(state, peer),
-        self_id,
+        _agent_label(_agent_state(state)),
     )
     return True
 
@@ -878,7 +883,7 @@ def _talk_phase_prompt(
             "- You may speak to multiple allowed recipients, one short message per recipient.",
             "- You may also stay silent by returning an empty messages array.",
             "- If you just sent a peer a message, wait for that peer before sending another message to them.",
-            "- If you and a peer both opened at the same time, the higher agent id waits and the lower agent id replies first.",
+            "- If you and a peer both opened at the same time, the higher simulation id waits and the lower simulation id replies first.",
             "- End the conversation by returning an empty messages array when the peer acknowledged, agreed, gave permission, or committed to an action and there is no new question.",
             "- Do not repeat a commitment you already made, such as saying you will gather after the peer already said to go ahead.",
             (
@@ -892,7 +897,7 @@ def _talk_phase_prompt(
             "Visible map:",
             _render_visible_map(state),
             f"Visible agents: {_visible_agents_text(state)}",
-            "Use only agent labels such as A0 or A1 for chat recipients and social action targets.",
+            "Use only listed agent names such as ENS names for chat recipients and social action targets.",
             f"All talk recipients: {_talk_recipients_text(state)}",
             f"Allowed recipients now: {_peer_list_text(state, allowed_recipients)}",
             f"Peers waiting for your reply: {_peer_list_text(state, pending_reply_peers)}",
@@ -1127,7 +1132,7 @@ def _filter_actions(
             continue
         action = _action_for_transport(action, state)
         if action is None:
-            logger.warning("skipping LLM action with unresolved agent label raw_action=%s", raw_action)
+            logger.warning("skipping LLM action with unresolved agent name raw_action=%s", raw_action)
             continue
 
         if not allow_talk and action["action"] == "talk_to":
@@ -1231,13 +1236,11 @@ def _message_recipient_for_transport(
     if not isinstance(raw_recipient, str):
         return None
 
-    label = _normalize_agent_label(raw_recipient)
-    if label is None:
-        if raw_recipient in allowed_public_keys:
-            logger.warning("rejecting public-key recipient from LLM; use agent label like A1")
+    if raw_recipient in allowed_public_keys:
+        logger.warning("rejecting public-key recipient from LLM; use listed agent name")
         return None
 
-    public_key = _agent_public_key_from_label(state, label)
+    public_key = _agent_public_key_from_label(state, raw_recipient)
     if public_key is None or public_key not in allowed_public_keys:
         return None
     return public_key
@@ -1249,18 +1252,17 @@ def _action_for_transport(action: dict[str, Any], state: State) -> dict[str, Any
         return action
 
     target = action.get("target")
-    label = _normalize_agent_label(target) if isinstance(target, str) else None
-    if label is None:
+    if not isinstance(target, str):
         return None
 
     if action_name == "talk_to":
-        public_key = _agent_public_key_from_label(state, label)
+        public_key = _agent_public_key_from_label(state, target)
         if public_key is None or public_key not in _valid_talk_recipients(state):
             return None
         action["target"] = public_key
         return action
 
-    target_payload = _agent_target_from_label(state, label)
+    target_payload = _agent_target_from_label(state, target)
     if target_payload is None or target_payload["public_key"] not in _visible_talk_recipients(state):
         return None
     action["target"] = target_payload
@@ -1305,7 +1307,7 @@ def _send_agent_actions(actions: list[dict[str, Any]], tick: int | None, self_pu
 
 def _send_agent_message(recipient: str, content: str, tick: int, self_public_key: str) -> None:
     if _normalize_agent_label(recipient) is not None:
-        logger.error("refusing to send AGENT_MSG to unresolved agent label recipient=%s", recipient)
+        logger.error("refusing to send AGENT_MSG to unresolved agent name recipient=%s", recipient)
         return
 
     message = {
@@ -1319,6 +1321,26 @@ def _send_agent_message(recipient: str, content: str, tick: int, self_public_key
     }
     axl.send(message, recipient)
     logger.info("sent AGENT_MSG tick=%s recipient_public_key=%s message=%s", tick, recipient, content)
+
+
+def _send_agent_profile(profile: dict[str, Any], self_public_key: str) -> None:
+    content = {
+        "sender_public_key": self_public_key,
+        "agent_profile": profile,
+    }
+    message = {
+        "protocol_version": config.PROTOCOL_VERSION,
+        "message_type": config.MESSAGE_TYPE_AGENT_PROFILE,
+        "sender_public_key": self_public_key,
+        "content": content,
+    }
+    axl.send(message, config.SERVER_PUBLIC_KEY)
+    logger.info(
+        "sent AGENT_PROFILE server=%s agent_name=%s wallet=%s",
+        config.SERVER_PUBLIC_KEY,
+        profile.get("ens_name"),
+        profile.get("wallet_address"),
+    )
 
 
 def _wire_action(raw_action: dict[str, Any]) -> dict[str, Any] | None:
@@ -1526,8 +1548,9 @@ def _results_block(state: State) -> str:
             if not isinstance(row, dict):
                 continue
             status = "alive" if row.get("alive") else f"dead:{row.get('death_cause') or '?'}"
+            name = _results_agent_name(state, row.get("agent_id"), row)
             lines.append(
-                f"#{row.get('rank', '?')} A{row.get('agent_id', '?')} {status} "
+                f"#{row.get('rank', '?')} {name} {status} "
                 f"survived={row.get('survived_ticks', '?')} "
                 f"kills={row.get('kills', 0)} actions={row.get('actions', 0)}"
             )
@@ -1542,7 +1565,8 @@ def _results_block(state: State) -> str:
                 continue
             lines.append(
                 f"tick {kill.get('tick', '?')}: "
-                f"A{kill.get('killer_id', '?')} killed A{kill.get('victim_id', '?')}"
+                f"{_results_agent_name(state, kill.get('killer_id'))} killed "
+                f"{_results_agent_name(state, kill.get('victim_id'))}"
             )
 
     deaths = results.get("deaths", [])
@@ -1552,10 +1576,10 @@ def _results_block(state: State) -> str:
             if not isinstance(death, dict):
                 continue
             killed_by = death.get("killed_by")
-            killer = "" if killed_by is None else f" by A{killed_by}"
+            killer = "" if killed_by is None else f" by {_results_agent_name(state, killed_by)}"
             lines.append(
                 f"tick {death.get('tick', '?')}: "
-                f"A{death.get('agent_id', '?')} died{killer} ({death.get('cause', '?')})"
+                f"{_results_agent_name(state, death.get('agent_id'))} died{killer} ({death.get('cause', '?')})"
             )
 
     action_counts = results.get("action_counts", {})
@@ -1566,9 +1590,26 @@ def _results_block(state: State) -> str:
             if not isinstance(counts, dict):
                 continue
             count_text = ", ".join(f"{name}={count}" for name, count in sorted(counts.items())) or "none"
-            lines.append(f"A{agent_key}: {count_text}")
+            lines.append(f"{_results_agent_name(state, agent_key)}: {count_text}")
 
     return "\n".join(lines)
+
+
+def _results_agent_name(state: State, agent_id: Any, row: dict[str, Any] | None = None) -> str:
+    if isinstance(row, dict):
+        name = row.get("name") or row.get("ens_name")
+        if isinstance(name, str) and name:
+            return name
+
+    try:
+        normalized_id: Any = int(agent_id)
+    except (TypeError, ValueError):
+        normalized_id = agent_id
+
+    for candidate in _known_agents(state):
+        if candidate.get("id") == normalized_id or str(candidate.get("id")) == str(agent_id):
+            return _agent_label(candidate)
+    return f"A{agent_id}"
 
 
 def _llm_state_description(state: State) -> str:
@@ -1587,10 +1628,10 @@ def _llm_valid_actions(state: State) -> list[dict[str, Any]]:
         prompt_action = _sanitize_llm_value(state, deepcopy(action))
         action_name = prompt_action.get("action")
         if action_name in LABEL_TARGET_ACTIONS:
-            prompt_action["target_format"] = "agent_label"
+            prompt_action["target_format"] = "agent_name"
             required_fields = prompt_action.get("required_fields")
             if isinstance(required_fields, dict):
-                required_fields["target"] = "Agent label string, for example A1."
+                required_fields["target"] = "Agent name string from targets, for example an ENS name."
 
             labels = _llm_action_target_labels(state, str(action_name))
             if labels:
@@ -1648,12 +1689,11 @@ def _llm_dict_agent_label(state: State, value: dict[str, Any]) -> str:
     agent_id = value.get("id")
     if not isinstance(agent_id, int):
         agent_id = value.get("agent_id")
-    if isinstance(agent_id, int):
-        return f"A{agent_id}"
-
     public_key = value.get("public_key") or value.get("sender_public_key") or value.get("agent_public_key")
     if isinstance(public_key, str):
         return _agent_label_from_public_key(state, public_key)
+    if isinstance(agent_id, int):
+        return _agent_label(value)
 
     return "A?"
 
@@ -1828,24 +1868,36 @@ def _agent_state(state: State) -> dict[str, Any]:
 
 def _agent_label(agent: dict[str, Any]) -> str:
     agent_id = agent.get("id")
-    return f"A{agent_id}" if agent_id is not None else "A?"
+    if agent_id is None:
+        agent_id = agent.get("agent_id")
+    return agent_display_name(
+        agent_id=agent_id,
+        public_key=agent.get("public_key") or agent.get("sender_public_key") or agent.get("agent_public_key"),
+        profile=_agent_profile(agent),
+    )
 
 
 def _agent_label_from_target(state: State, target: Any) -> str:
     if isinstance(target, dict):
-        label = _normalize_agent_label(target.get("label"))
-        if label is not None:
+        label = target.get("label") or target.get("name") or target.get("ens_name")
+        if isinstance(label, str) and label:
             return label
         if "id" in target:
+            for candidate in _known_agents(state):
+                if candidate.get("id") == target["id"]:
+                    return _agent_label(candidate)
             return f"A{target['id']}"
         if isinstance(target.get("public_key"), str):
             return _agent_label_from_public_key(state, target["public_key"])
     if isinstance(target, int):
-        return f"A{target}"
+        return _results_agent_name(state, target)
     if isinstance(target, str):
         label = _normalize_agent_label(target)
         if label is not None:
-            return label
+            return _results_agent_name(state, _agent_id_from_label(label))
+        public_key = _agent_public_key_from_label(state, target)
+        if public_key is not None:
+            return _agent_label_from_public_key(state, public_key)
         return _agent_label_from_public_key(state, target)
     return "A?"
 
@@ -1860,32 +1912,36 @@ def _normalize_agent_label(value: Any) -> str | None:
 
 
 def _agent_public_key_from_label(state: State, label: str) -> str | None:
-    agent_id = _agent_id_from_label(label)
-    if agent_id is None:
+    if not isinstance(label, str):
         return None
 
-    self_agent = _agent_state(state)
-    if self_agent.get("id") == agent_id and isinstance(self_agent.get("public_key"), str):
-        return self_agent["public_key"]
+    text = label.strip()
+    agent_id = _agent_id_from_label(text)
 
-    for tile in state.sim_state.get("visible_map", []):
-        if not isinstance(tile, dict):
+    for candidate in _known_agents(state):
+        public_key = candidate.get("public_key")
+        if not isinstance(public_key, str) or not public_key:
             continue
-        for occupant in tile.get("occupants", []):
-            if (
-                isinstance(occupant, dict)
-                and occupant.get("id") == agent_id
-                and isinstance(occupant.get("public_key"), str)
-            ):
-                return occupant["public_key"]
+        if agent_id is not None and candidate.get("id") == agent_id:
+            return public_key
+        if _agent_name_matches(candidate, text):
+            return public_key
     return None
 
 
 def _agent_target_from_label(state: State, label: str) -> dict[str, Any] | None:
-    agent_id = _agent_id_from_label(label)
     public_key = _agent_public_key_from_label(state, label)
-    if agent_id is None or public_key is None:
+    if public_key is None:
         return None
+    for candidate in _known_agents(state):
+        if candidate.get("public_key") == public_key:
+            return {
+                "id": candidate.get("id"),
+                "name": _agent_label(candidate),
+                "ens_name": candidate.get("ens_name"),
+                "public_key": public_key,
+            }
+    agent_id = _agent_id_from_label(label)
     return {"id": agent_id, "public_key": public_key}
 
 
@@ -1898,20 +1954,10 @@ def _agent_id_from_label(label: str) -> int | None:
 
 def _public_key_labels(state: State) -> dict[str, str]:
     labels: dict[str, str] = {}
-    self_agent = _agent_state(state)
-    self_public_key = self_agent.get("public_key")
-    if isinstance(self_public_key, str) and self_public_key:
-        labels[self_public_key] = _agent_label(self_agent)
-
-    for tile in state.sim_state.get("visible_map", []):
-        if not isinstance(tile, dict):
-            continue
-        for occupant in tile.get("occupants", []):
-            if not isinstance(occupant, dict):
-                continue
-            public_key = occupant.get("public_key")
-            if isinstance(public_key, str) and public_key:
-                labels[public_key] = _agent_label(occupant)
+    for candidate in _known_agents(state):
+        public_key = candidate.get("public_key")
+        if isinstance(public_key, str) and public_key:
+            labels[public_key] = _agent_label(candidate)
     return labels
 
 
@@ -1919,16 +1965,9 @@ def _agent_label_from_public_key(state: State, public_key: Any) -> str:
     if not isinstance(public_key, str) or not public_key:
         return "A?"
 
-    self_agent = _agent_state(state)
-    if self_agent.get("public_key") == public_key:
-        return _agent_label(self_agent)
-
-    for tile in state.sim_state.get("visible_map", []):
-        if not isinstance(tile, dict):
-            continue
-        for occupant in tile.get("occupants", []):
-            if isinstance(occupant, dict) and occupant.get("public_key") == public_key:
-                return _agent_label(occupant)
+    for candidate in _known_agents(state):
+        if candidate.get("public_key") == public_key:
+            return _agent_label(candidate)
     return "A?"
 
 
@@ -1936,20 +1975,9 @@ def _agent_id_from_public_key(state: State, public_key: Any) -> int | None:
     if not isinstance(public_key, str) or not public_key:
         return None
 
-    self_agent = _agent_state(state)
-    if self_agent.get("public_key") == public_key and isinstance(self_agent.get("id"), int):
-        return self_agent["id"]
-
-    for tile in state.sim_state.get("visible_map", []):
-        if not isinstance(tile, dict):
-            continue
-        for occupant in tile.get("occupants", []):
-            if (
-                isinstance(occupant, dict)
-                and occupant.get("public_key") == public_key
-                and isinstance(occupant.get("id"), int)
-            ):
-                return occupant["id"]
+    for candidate in _known_agents(state):
+        if candidate.get("public_key") == public_key and isinstance(candidate.get("id"), int):
+            return candidate["id"]
     return None
 
 
@@ -1962,6 +1990,8 @@ def _chat_peer_label(state: State | None, public_key: Any) -> str:
         if resolved_label != "A?":
             return resolved_label
     if isinstance(public_key, str) and public_key:
+        if "." in public_key and len(public_key) <= 255:
+            return public_key
         return public_key[:8]
     return "A?"
 
@@ -1980,6 +2010,59 @@ def _visible_agents_text(state: State) -> str:
             label = _agent_label(occupant)
             seen[occupant.get("id", label)] = f"{label} at {_position_text(occupant.get('position'))}"
     return ", ".join(seen.values()) if seen else "none"
+
+
+def _known_agents(state: State) -> list[dict[str, Any]]:
+    agents: list[dict[str, Any]] = []
+    self_agent = _agent_state(state)
+    if self_agent:
+        agents.append(self_agent)
+
+    for row in state.sim_state.get("scoreboard", []):
+        if isinstance(row, dict):
+            agents.append(
+                {
+                    "id": row.get("agent_id"),
+                    "name": row.get("name") or row.get("ens_name"),
+                    "ens_name": row.get("ens_name"),
+                    "public_key": row.get("public_key"),
+                    "profile": row.get("profile"),
+                }
+            )
+
+    for tile in state.sim_state.get("visible_map", []):
+        if not isinstance(tile, dict):
+            continue
+        for occupant in tile.get("occupants", []):
+            if isinstance(occupant, dict):
+                agents.append(occupant)
+
+    deduped: dict[str, dict[str, Any]] = {}
+    for agent in agents:
+        public_key = agent.get("public_key")
+        key = public_key if isinstance(public_key, str) and public_key else str(agent.get("id"))
+        deduped[key] = {**deduped.get(key, {}), **agent}
+    return list(deduped.values())
+
+
+def _agent_profile(agent: dict[str, Any]) -> dict[str, Any]:
+    profile = agent.get("profile")
+    if isinstance(profile, dict):
+        return profile
+    return agent
+
+
+def _agent_name_matches(agent: dict[str, Any], raw_label: str) -> bool:
+    text = raw_label.strip().rstrip(".").lower()
+    if not text:
+        return False
+
+    for key in ("label", "name", "ens_name"):
+        value = agent.get(key)
+        if isinstance(value, str) and value.strip().rstrip(".").lower() == text:
+            return True
+
+    return profile_matches_name(_agent_profile(agent), text)
 
 
 def _inventory_text(inventory: Any) -> str:

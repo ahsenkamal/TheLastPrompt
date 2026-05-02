@@ -16,16 +16,21 @@ def parse_args():
     parser.add_argument("prompt_path", type=Path, help="Path to prompt.txt")
     return parser.parse_args()
 
-def send_matchmaking_request(self_public_key: str):
+def send_matchmaking_request(self_public_key: str, agent_profile: dict | None = None):
     message = {
         "protocol_version": config.PROTOCOL_VERSION,
         "message_type": config.MESSAGE_TYPE_MATCHMAKING_JOIN,
         "content": {
             "public_key": self_public_key,
+            "agent_profile": agent_profile or {},
         },
     }
     axl.send(message, config.SERVER_PUBLIC_KEY)
-    logger.info("sent matchmaking request to server=%s", config.SERVER_PUBLIC_KEY)
+    logger.info(
+        "sent matchmaking request to server=%s agent_name=%s",
+        config.SERVER_PUBLIC_KEY,
+        (agent_profile or {}).get("ens_name"),
+    )
 
 def main():
     setup_logging("client")
@@ -46,9 +51,15 @@ def main():
             port=config.CLIENT_DASHBOARD_PORT,
             db_path=config.CLIENT_REPLAY_DB_PATH,
         )
+        if config.CLIENT_WALLET_LOGIN_WAIT_SECONDS > 0:
+            logger.info(
+                "waiting up to %.1fs for MetaMask profile on client dashboard",
+                config.CLIENT_WALLET_LOGIN_WAIT_SECONDS,
+            )
+            runtime.wait_for_profile(config.CLIENT_WALLET_LOGIN_WAIT_SECONDS)
 
     # send matchmaking request to server
-    send_matchmaking_request(self_public_key)
+    send_matchmaking_request(self_public_key, runtime.get_profile() if runtime is not None else None)
 
     client_loop(self_public_key, runtime)
 

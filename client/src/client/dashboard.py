@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
+from uuid import uuid4
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from common.identity import SEPOLIA_CHAIN_ID, normalize_agent_profile, agent_display_name
 from common.replay_store import ReplayStore
 
 
@@ -20,15 +23,66 @@ class ClientRuntime:
         self.public_key = public_key
         self.store = ReplayStore(db_path)
         self.lock = threading.Lock()
+        self.profile_condition = threading.Condition(self.lock)
+        self.profile: dict[str, Any] = normalize_agent_profile({"agent_public_key": public_key}, public_key)
+        self.profile_updates: list[dict[str, Any]] = []
+        self.profile_nonce = uuid4().hex
         self.current_state: dict[str, Any] | None = None
         self.incoming_messages: list[dict[str, Any]] = []
         self.latest_decision: dict[str, Any] | None = None
         self.chat_log: list[dict[str, Any]] = []
 
+    def profile_challenge(self) -> dict[str, Any]:
+        with self.lock:
+            message = "\n".join(
+                [
+                    "The Last Prompt agent login",
+                    f"Agent public key: {self.public_key}",
+                    f"Network: Sepolia ({SEPOLIA_CHAIN_ID})",
+                    f"Nonce: {self.profile_nonce}",
+                ]
+            )
+            return {
+                "message": message,
+                "nonce": self.profile_nonce,
+                "agent_public_key": self.public_key,
+                "chain_id": SEPOLIA_CHAIN_ID,
+            }
+
+    def update_profile(self, profile: dict[str, Any]) -> dict[str, Any]:
+        normalized = normalize_agent_profile(profile, self.public_key)
+        with self.profile_condition:
+            self.profile = {**self.profile, **normalized}
+            self.profile_updates.append(dict(self.profile))
+            self.profile_nonce = uuid4().hex
+            self.profile_condition.notify_all()
+            return dict(self.profile)
+
+    def get_profile(self) -> dict[str, Any]:
+        with self.lock:
+            return dict(self.profile)
+
+    def wait_for_profile(self, timeout: float) -> dict[str, Any]:
+        deadline = time.monotonic() + max(0.0, timeout)
+        with self.profile_condition:
+            while timeout > 0 and not self.profile.get("wallet_address") and not self.profile.get("ens_name"):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.profile_condition.wait(timeout=remaining)
+            return dict(self.profile)
+
+    def pop_profile_updates(self) -> list[dict[str, Any]]:
+        with self.lock:
+            updates = list(self.profile_updates)
+            self.profile_updates.clear()
+            return updates
+
     def record_state(self, sim_state: dict[str, Any], incoming_messages: list[dict[str, Any]]) -> None:
         sim_id = str(sim_state.get("sim_id") or "unmatched")
         tick = int(sim_state.get("tick") or 0)
         agent_id = _agent_id(sim_state)
+        agent_name = _agent_name(sim_state, agent_id)
         snapshot = {
             "sim_state": sim_state,
             "incoming_agent_messages": list(incoming_messages),
@@ -46,8 +100,8 @@ class ClientRuntime:
                 sim_id,
                 tick,
                 "agent_state",
-                f"Agent A{agent_id} observed tick {tick}",
-                {"agent_id": agent_id},
+                f"Agent {agent_name} observed tick {tick}",
+                {"agent_id": agent_id, "agent_name": agent_name},
             )
 
     def record_decision(
@@ -59,6 +113,7 @@ class ClientRuntime:
         sim_id = str(sim_state.get("sim_id") or "unmatched")
         tick = int(sim_state.get("tick") or 0)
         agent_id = _agent_id(sim_state) or "self"
+        agent_name = _agent_name(sim_state, agent_id)
         decision = {
             "tick": tick,
             "actions": accepted.get("actions", []),
@@ -77,7 +132,7 @@ class ClientRuntime:
             decision["messages"],
             str(decision["reasoning"]),
         )
-        self.store.record_event(sim_id, tick, "decision", f"Agent A{agent_id} chose {len(decision['actions'])} action(s)", decision)
+        self.store.record_event(sim_id, tick, "decision", f"Agent {agent_name} chose {len(decision['actions'])} action(s)", decision)
         for message in decision["messages"]:
             recipient = str(message.get("recipient_label") or message.get("recipient", "?"))
             content = str(message.get("content", ""))
@@ -115,6 +170,7 @@ class ClientRuntime:
         with self.lock:
             return {
                 "public_key": self.public_key,
+                "profile": dict(self.profile),
                 "state": self.current_state,
                 "incoming_messages": list(self.incoming_messages),
                 "latest_decision": self.latest_decision,
@@ -142,6 +198,9 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/live":
             self._send_json(self.runtime.live_payload())
+            return
+        if parsed.path == "/api/profile/challenge":
+            self._send_json(self.runtime.profile_challenge())
             return
         if parsed.path == "/api/history/simulations":
             self._send_json({"simulations": self.runtime.store.list_simulations(200)})
@@ -172,6 +231,19 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             self.path = "/index.html"
         super().do_GET()
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/profile":
+            payload = self._read_json()
+            if payload is None:
+                self._send_json({"error": "invalid JSON"}, status=400)
+                return
+            profile = self.runtime.update_profile(payload)
+            self._send_json({"profile": profile})
+            return
+
+        self._send_json({"error": "not found"}, status=404)
+
     def log_message(self, format: str, *args: Any) -> None:
         logger.debug("dashboard %s", format % args)
 
@@ -184,12 +256,36 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _read_json(self) -> dict[str, Any] | None:
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            return None
+        if length <= 0 or length > 32768:
+            return None
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
 
 def _agent_id(sim_state: dict[str, Any]) -> int | str | None:
     agent = sim_state.get("agent")
     if isinstance(agent, dict):
         return agent.get("id")
     return None
+
+
+def _agent_name(sim_state: dict[str, Any], agent_id: int | str | None = None) -> str:
+    agent = sim_state.get("agent")
+    if isinstance(agent, dict):
+        return agent_display_name(
+            agent_id=agent.get("id", agent_id),
+            public_key=agent.get("public_key"),
+            profile=agent.get("profile") if isinstance(agent.get("profile"), dict) else agent,
+        )
+    return agent_display_name(agent_id=agent_id)
 
 
 def _query_value(query: str, key: str) -> str | None:
