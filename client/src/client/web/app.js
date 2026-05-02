@@ -13,6 +13,7 @@ const state = {
 };
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
+const SEPOLIA_READ_RPC_URL = "https://ethereum-sepolia.publicnode.com";
 const AGENT_PUBLIC_KEY_TEXT_RECORD = "thelastprompt.agent_public_key";
 const SEPOLIA_ENS_APP_URL = "https://sepolia.app.ens.domains/";
 const ENS_REGISTRY_ADDRESS = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
@@ -322,7 +323,11 @@ async function loginWithMetaMask() {
     });
     const recovered = ethers.verifyMessage(challenge.message, signature);
     if (!sameAddress(recovered, walletAddress)) throw new Error("signature mismatch");
-    const ens = await resolveWalletEns(provider, walletAddress, els.ensNameInput.value);
+    const ensProvider = new ethers.JsonRpcProvider(SEPOLIA_READ_RPC_URL, {
+      chainId: Number(challenge.chain_id),
+      name: "sepolia",
+    });
+    const ens = await resolveWalletEns(ensProvider, walletAddress, els.ensNameInput.value);
     if (!ens.name) {
       const saved = await postJson("/api/profile", {
         agent_public_key: challenge.agent_public_key,
@@ -420,7 +425,7 @@ async function ensureSepolia() {
         chainId: SEPOLIA_CHAIN_ID,
         chainName: "Sepolia",
         nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: ["https://rpc.sepolia.org"],
+        rpcUrls: [SEPOLIA_READ_RPC_URL],
         blockExplorerUrls: ["https://sepolia.etherscan.io"],
       }],
     });
@@ -434,9 +439,9 @@ async function resolveWalletEns(provider, walletAddress, preferredName = "") {
     try {
       name = await provider.lookupAddress(walletAddress);
     } catch (error) {
-      result.reason = "no primary ENS name found for this wallet on Sepolia";
-      return result;
+      name = "";
     }
+    if (!name) name = await manualReverseName(provider, walletAddress);
     name = normalizeEnsInput(name);
   }
   if (!name) {
@@ -455,6 +460,31 @@ async function resolveWalletEns(provider, walletAddress, preferredName = "") {
   result.resolverAddress = resolverInfo.resolverAddress;
   result.agentPublicKey = resolverInfo.agentPublicKey;
   return result;
+}
+
+async function manualReverseName(provider, walletAddress) {
+  const reverseNode = reverseNodeForAddress(walletAddress);
+  try {
+    const registry = new ethers.Contract(
+      ENS_REGISTRY_ADDRESS,
+      ["function resolver(bytes32 node) view returns (address)"],
+      provider,
+    );
+    const resolverAddress = await registry.resolver(reverseNode);
+    if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) return "";
+    const resolver = new ethers.Contract(
+      resolverAddress,
+      ["function name(bytes32 node) view returns (string)"],
+      provider,
+    );
+    return await resolver.name(reverseNode);
+  } catch (error) {
+    return "";
+  }
+}
+
+function reverseNodeForAddress(walletAddress) {
+  return ethers.namehash(`${String(walletAddress).toLowerCase().replace(/^0x/, "")}.addr.reverse`);
 }
 
 async function verifyEnsControl(provider, name, walletAddress) {
