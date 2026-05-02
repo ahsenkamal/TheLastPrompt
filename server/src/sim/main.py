@@ -20,14 +20,15 @@ def sim_done(future):
         logger.error("simulation crashed", exc_info=(type(ex), ex, ex.__traceback__))
 
 
-def setup(agent_public_keys, seed):
-    sim = create_simulation(agent_public_keys, seed)
+def setup(agent_public_keys, seed, agent_profiles=None):
+    sim = create_simulation(agent_public_keys, seed, agent_profiles or {})
     sim.future = sim_executor.submit(sim.run)
     sim.future.add_done_callback(sim_done)
     return sim
 
 
-def create_simulation(agent_public_keys, seed):
+def create_simulation(agent_public_keys, seed, agent_profiles=None):
+    agent_profiles = agent_profiles or {}
     # generate map
     map = Map(seed)
     logger.info("creating simulation seed=%s agents=%s", seed, agent_public_keys)
@@ -36,7 +37,7 @@ def create_simulation(agent_public_keys, seed):
     # create agents
     agents = []
     for id, agent_key in enumerate(agent_public_keys):
-        agent = Agent(id, agent_key) 
+        agent = Agent(id, agent_key, agent_profiles.get(agent_key))
         agents.append(agent)
 
     # spawn agents

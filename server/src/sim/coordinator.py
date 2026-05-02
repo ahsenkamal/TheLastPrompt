@@ -4,6 +4,7 @@ import logging
 from .agent import Agent
 from .action import create_valid_actions
 from common import axl
+from common.identity import agent_display_name
 from common.protocol import MESSAGE_TYPE_STATE_UPDATE, PROTOCOL_VERSION
 
 if TYPE_CHECKING:
@@ -59,7 +60,10 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
         },
         "agent": {
             "id": agent.id,
+            "name": _agent_name(agent),
+            "ens_name": agent.profile.get("ens_name"),
             "public_key": agent.public_key,
+            "profile": dict(agent.profile),
             "position": {
                 "x": agent.pos_x,
                 "y": agent.pos_y,
@@ -126,7 +130,10 @@ def create_visible_map(sim: "Simulation", agent: Agent) -> list[dict[str, Any]]:
 def _visible_agent(agent: Agent, occupant: Agent) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "id": occupant.id,
+        "name": _agent_name(occupant),
+        "ens_name": occupant.profile.get("ens_name"),
         "public_key": occupant.public_key,
+        "profile": dict(occupant.profile),
         "position": {
             "x": occupant.pos_x,
             "y": occupant.pos_y,
@@ -142,6 +149,10 @@ def _visible_agent(agent: Agent, occupant: Agent) -> dict[str, Any]:
             "grudge": agent.grudges.get(occupant.id, 0.0),
         }
     return payload
+
+
+def _agent_name(agent: Agent) -> str:
+    return agent_display_name(agent_id=agent.id, public_key=agent.public_key, profile=agent.profile)
 
 
 def _condition_tags(agent: Agent) -> list[str]:

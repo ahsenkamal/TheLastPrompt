@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, TYPE_CHECKING
 
+from common.identity import agent_display_name
+
 if TYPE_CHECKING:
     from .agent import Agent
     from .sim import Simulation
@@ -122,7 +124,7 @@ ACTION_FIELD_SPECS: dict[ActionType, dict[str, Any]] = {
         "required_fields": {"consumable": "Medication resource name from your inventory."},
     },
     ActionType.TALK_TO: {
-        "required_fields": {"target": "Public key string of a visible agent."},
+        "required_fields": {"target": "Visible agent target."},
     },
     ActionType.WARMUP: {
         "required_fields": {"consumable": "fuel or wood from your inventory."},
@@ -877,7 +879,9 @@ def _trade(sim: "Simulation", agent: "Agent", action: Action) -> None:
         trade_event = {
             "tick": sim.iteration,
             "from_agent_id": agent.id,
+            "from_agent_name": _agent_label(agent),
             "to_agent_id": target_agent.id,
+            "to_agent_name": _agent_label(target_agent),
             "offered": offered_resource.value,
             "requested": requested_resource.value,
         }
@@ -885,7 +889,7 @@ def _trade(sim: "Simulation", agent: "Agent", action: Action) -> None:
         _record_event(
             sim,
             (
-                f"A{agent.id} traded {offered_resource.value} to A{target_agent.id} "
+                f"{_agent_label(agent)} traded {offered_resource.value} to {_agent_label(target_agent)} "
                 f"for {requested_resource.value}"
             ),
             event_type="trade",
@@ -1041,7 +1045,7 @@ def _find_agent(sim: "Simulation", target: Any) -> "Agent | None":
 
 
 def _agent_target(agent: "Agent") -> dict[str, Any]:
-    return {"id": agent.id, "public_key": agent.public_key}
+    return {"id": agent.id, "name": _agent_label(agent), "ens_name": agent.profile.get("ens_name"), "public_key": agent.public_key}
 
 
 def _tile_target(tile: Any) -> dict[str, int]:
@@ -1050,6 +1054,10 @@ def _tile_target(tile: Any) -> dict[str, int]:
 
 def _adjust_relation(values: dict[int, float], agent_id: int, delta: float) -> None:
     values[agent_id] = max(0, min(100, values.get(agent_id, 50.0) + delta))
+
+
+def _agent_label(agent: "Agent") -> str:
+    return agent_display_name(agent_id=agent.id, public_key=agent.public_key, profile=agent.profile)
 
 
 def _record_event(

@@ -103,6 +103,7 @@ def _live_payload(state: State) -> dict[str, Any]:
             simulations.append(snapshot())
     return {
         "queue": list(state.matchmaking_queue),
+        "agent_profiles": dict(state.agent_profiles),
         "simulations": simulations,
         "sim_size": state.sim_size,
         "server_public_key": state.self_public_key,

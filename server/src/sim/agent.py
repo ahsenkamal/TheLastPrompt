@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from common.identity import normalize_agent_profile
 from .types import ResourceType
 from server.config import MAP_SIZE, NORMAL_VISIBILITY_RADIUS, SNEAK_VISIBILITY_RADIUS
 
@@ -43,8 +44,10 @@ BACKPACK_CARRY_BONUS = 8.0
 
 
 class Agent:
-    def __init__(self, id, public_key: str):
+    def __init__(self, id, public_key: str, profile: dict[str, Any] | None = None):
         self.public_key = public_key
+        self.profile = normalize_agent_profile(profile, public_key)
+        self.name = self.profile.get("ens_name")
         self.id = id
         self.pos_x = 0
         self.pos_y = 0
@@ -71,6 +74,10 @@ class Agent:
         self.death_tick: int | None = None
         self.death_cause: str | None = None
         self.killed_by: int | None = None
+
+    def set_profile(self, profile: dict[str, Any] | None) -> None:
+        self.profile = normalize_agent_profile(profile, self.public_key)
+        self.name = self.profile.get("ens_name")
 
     def die(self):
         self.alive = False

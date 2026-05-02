@@ -175,7 +175,10 @@ function renderMap(snapshot) {
   els.mapGrid.style.gridTemplateColumns = `repeat(${width}, minmax(0, 1fr))`;
   els.mapGrid.innerHTML = rows.flat().map((tile) => {
     const resources = Object.values(tile.resources || {}).reduce((sum, amount) => sum + Number(amount || 0), 0);
-    const occupants = (tile.occupants || []).map((id) => `<span class="agent-dot">A${id}</span>`).join("");
+    const occupants = (tile.occupants || []).map((occupant) => {
+      const label = agentLabel(occupant, snapshot);
+      return `<span class="agent-dot" title="${escapeHtml(label)}">${escapeHtml(compactLabel(label))}</span>`;
+    }).join("");
     return `
       <div class="tile ${tile.type} ${tile.hazard ? "hazard" : ""}" title="${tile.type}${tile.hazard ? ` · ${tile.hazard}` : ""}">
         <span class="coords">${tile.x},${tile.y}</span>
@@ -194,7 +197,7 @@ function renderAgents(snapshot) {
   els.agents.innerHTML = agents.map((agent) => `
     <div class="agent-row ${agent.alive ? "" : "dead"}">
       <div>
-        <strong>A${agent.id} ${agent.alive ? "" : "· dead"}</strong>
+        <strong>${escapeHtml(agentLabel(agent, snapshot))} ${agent.alive ? "" : "· dead"}</strong>
         <div class="muted">(${agent.pos.x},${agent.pos.y}) · ${agent.stance} · ${agent.inventory_weight}/${agent.carry_capacity} carry</div>
       </div>
       <div class="bars">
@@ -229,7 +232,7 @@ function renderActions(snapshot) {
     const action = entry.action || {};
     return `
       <div class="feed-line">
-        <strong>A${entry.agent_id} · tick ${entry.tick}</strong>
+        <strong>${escapeHtml(agentLabelById(snapshot, entry.agent_id))} · tick ${entry.tick}</strong>
         <span class="muted">${escapeHtml(action.action || "action")} ${escapeHtml(actionText(action))}</span>
       </div>
     `;
@@ -262,13 +265,57 @@ function bar(name, value) {
 
 function actionText(action) {
   if (action.target?.x !== undefined) return `(${action.target.x},${action.target.y})`;
+  if (action.target?.name) return action.target.name;
+  if (action.target?.ens_name) return action.target.ens_name;
   if (action.target?.id !== undefined) return `A${action.target.id}`;
+  if (typeof action.target === "string") return agentLabelByPublicKey(currentSnapshot(), action.target);
   return [action.consumable, action.item].filter(Boolean).join(" ");
 }
 
 function shortKey(value) {
   if (!value) return "...";
   return String(value).length > 12 ? `${String(value).slice(0, 6)}...${String(value).slice(-4)}` : String(value);
+}
+
+function agentLabel(agent, snapshot) {
+  if (agent && typeof agent === "object") {
+    if (agent.name) return String(agent.name);
+    if (agent.ens_name) return String(agent.ens_name);
+    if (agent.profile?.ens_name) return String(agent.profile.ens_name);
+    if (agent.id !== undefined && agent.id !== null) return `A${agent.id}`;
+    if (agent.public_key) return shortKey(agent.public_key);
+  }
+  if (agent !== undefined && agent !== null) return agentLabelById(snapshot, agent);
+  return "A?";
+}
+
+function agentLabelById(snapshot, id) {
+  const idText = String(id);
+  for (const agent of snapshot?.agents || []) {
+    if (String(agent.id) === idText) return agentLabel(agent, snapshot);
+  }
+  for (const row of snapshot?.scoreboard || []) {
+    if (String(row.agent_id) === idText) return row.name || row.ens_name || `A${id}`;
+  }
+  return `A${id}`;
+}
+
+function agentLabelByPublicKey(snapshot, publicKey) {
+  for (const agent of snapshot?.agents || []) {
+    if (agent.public_key === publicKey) return agentLabel(agent, snapshot);
+  }
+  for (const row of snapshot?.scoreboard || []) {
+    if (row.public_key === publicKey) return row.name || row.ens_name || shortKey(publicKey);
+  }
+  return shortKey(publicKey);
+}
+
+function compactLabel(label) {
+  const text = String(label || "?");
+  if (text.length <= 10) return text;
+  const first = text.split(".")[0];
+  if (first.length <= 10) return first;
+  return `${first.slice(0, 7)}...`;
 }
 
 function escapeHtml(value) {

@@ -7,6 +7,7 @@ from common.logging_config import demo_log
 from common.protocol import (
     MESSAGE_TYPE_AGENT_ACTION,
     MESSAGE_TYPE_AGENT_MSG,
+    MESSAGE_TYPE_AGENT_PROFILE,
     MESSAGE_TYPE_MATCHMAKING_JOIN,
     PROTOCOL_VERSION,
 )
@@ -40,29 +41,44 @@ async def handle_message(sender, msg, state: State):
     logger.info("received message sender=%s type=%s", sender, message_type)
     if message_type == MESSAGE_TYPE_MATCHMAKING_JOIN:
         agent_public_key = _extract_sender_public_key(sender, msg)
-        state.add_to_queue(agent_public_key)
+        profile = _extract_agent_profile(msg, agent_public_key)
+        state.add_to_queue(agent_public_key, profile)
         logger.info(
-            "matchmaking join transport_sender=%s agent_public_key=%s queue_size=%s sim_size=%s",
+            "matchmaking join transport_sender=%s agent_public_key=%s agent_name=%s queue_size=%s sim_size=%s",
             sender,
             agent_public_key,
+            profile.get("ens_name"),
             len(state.matchmaking_queue),
             state.sim_size,
         )
         if state.queue_ready():
-            agents, seed = state.pick_new_sim_agents()
-            logger.info("matchmaking ready agents=%s seed=%s", agents, seed)
-            state.sim_instances.append(sim.setup(agents, seed))
+            agents, seed, profiles = state.pick_new_sim_agents()
+            logger.info("matchmaking ready agents=%s seed=%s profiles=%s", agents, seed, profiles)
+            state.sim_instances.append(sim.setup(agents, seed, profiles))
+    elif message_type == MESSAGE_TYPE_AGENT_PROFILE:
+        agent_public_key = _extract_sender_public_key(sender, msg)
+        profile = state.update_agent_profile(agent_public_key, _extract_agent_profile(msg, agent_public_key))
+        logger.info(
+            "agent profile update transport_sender=%s agent_public_key=%s agent_name=%s wallet=%s",
+            sender,
+            agent_public_key,
+            profile.get("ens_name"),
+            profile.get("wallet_address"),
+        )
     elif message_type == MESSAGE_TYPE_AGENT_ACTION:
         handle_agent_action(sender, msg, state)
     elif message_type == MESSAGE_TYPE_AGENT_MSG:
         logger.info("received AGENT_MSG on server sender=%s content=%s", sender, msg.get("content"))
+        agent_public_key = _extract_sender_public_key(sender, msg)
         content = msg.get("content")
         if isinstance(content, dict):
             text = content.get("message") or content.get("content") or ""
         else:
             text = content or ""
         if isinstance(text, str) and text.strip():
-            demo_log(logger, "Chat %s -> server: %s", sender[:8], _one_line(text, 240))
+            profile = state.agent_profiles.get(agent_public_key, {})
+            label = profile.get("ens_name") or agent_public_key[:8]
+            demo_log(logger, "Chat %s -> server: %s", label, _one_line(text, 240))
     else:
         logger.warning("unknown message type sender=%s type=%s", sender, message_type)
 
@@ -163,6 +179,33 @@ def _extract_sender_public_key(transport_sender: str, msg: dict) -> str:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return transport_sender
+
+
+def _extract_agent_profile(msg: dict, agent_public_key: str) -> dict:
+    content = msg.get("content")
+    profile = {}
+    if isinstance(content, dict):
+        raw_profile = content.get("agent_profile") or content.get("profile")
+        if isinstance(raw_profile, dict):
+            profile.update(raw_profile)
+        for key in (
+            "ens_name",
+            "wallet_address",
+            "chain_id",
+            "signature",
+            "login_message",
+            "profile_text_key",
+            "profile_text_value",
+            "profile_tx_hash",
+            "resolver_address",
+            "connected_at",
+        ):
+            if key in content and key not in profile:
+                profile[key] = content[key]
+    if isinstance(msg.get("agent_profile"), dict):
+        profile.update(msg["agent_profile"])
+    profile["agent_public_key"] = agent_public_key
+    return profile
 
 
 def _extract_action_tick(content: object, msg: dict, default_tick: int) -> int:

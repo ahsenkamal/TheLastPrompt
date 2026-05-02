@@ -10,6 +10,7 @@ from .types import *
 from .agent import Agent
 from .action import Action, ActionType, execute_action, valid_action
 from .coordinator import send_states_to_agents
+from common.identity import agent_display_name
 from common.replay_store import ReplayStore
 from common.logging_config import color_delta, demo_log, is_demo_logging
 from server.config import REPLAY_DB_PATH, SIM_MAX_TICKS, TICK_TIMEOUT_SECONDS
@@ -310,7 +311,10 @@ class Simulation:
             rows.append(
                 {
                     "agent_id": agent.id,
+                    "name": _agent_label(agent),
+                    "ens_name": agent.profile.get("ens_name"),
                     "public_key": agent.public_key,
+                    "profile": dict(agent.profile),
                     "alive": agent.alive,
                     "survived_ticks": survived_ticks,
                     "kills": kill_counts.get(agent.id, 0),
@@ -344,7 +348,7 @@ class Simulation:
         for row in results["leaderboard"]:
             status = "alive" if row["alive"] else f"dead:{row['death_cause']}"
             lines.append(
-                f"#{row['rank']} A{row['agent_id']} {status} "
+                f"#{row['rank']} {row.get('name') or 'A' + str(row['agent_id'])} {status} "
                 f"survived={row['survived_ticks']} kills={row['kills']} actions={row['actions']}"
             )
 
@@ -352,28 +356,34 @@ class Simulation:
             lines.append("Kills:")
             for kill in results["kills"]:
                 lines.append(
-                    f"tick {kill['tick']}: A{kill['killer_id']} killed A{kill['victim_id']} ({kill['cause']})"
+                    f"tick {kill['tick']}: "
+                    f"{_agent_label_by_id(self, kill['killer_id'])} killed "
+                    f"{_agent_label_by_id(self, kill['victim_id'])} ({kill['cause']})"
                 )
 
         if results["trades"]:
             lines.append("Trades:")
             for trade in results["trades"]:
                 lines.append(
-                    f"tick {trade['tick']}: A{trade['from_agent_id']} traded "
-                    f"{trade['offered']} with A{trade['to_agent_id']} for {trade['requested']}"
+                    f"tick {trade['tick']}: {_agent_label_by_id(self, trade['from_agent_id'])} traded "
+                    f"{trade['offered']} with {_agent_label_by_id(self, trade['to_agent_id'])} "
+                    f"for {trade['requested']}"
                 )
 
         if results["deaths"]:
             lines.append("Deaths:")
             for death in results["deaths"]:
-                killer = "" if death["killed_by"] is None else f" by A{death['killed_by']}"
-                lines.append(f"tick {death['tick']}: A{death['agent_id']} died{killer} ({death['cause']})")
+                killer = "" if death["killed_by"] is None else f" by {_agent_label_by_id(self, death['killed_by'])}"
+                lines.append(
+                    f"tick {death['tick']}: {_agent_label_by_id(self, death['agent_id'])} "
+                    f"died{killer} ({death['cause']})"
+                )
 
         lines.append("Actions:")
         for row in sorted(results["leaderboard"], key=lambda item: item["agent_id"]):
             counts = row["action_counts"]
             count_text = ", ".join(f"{name}={count}" for name, count in sorted(counts.items())) or "none"
-            lines.append(f"A{row['agent_id']}: {count_text}")
+            lines.append(f"{row.get('name') or 'A' + str(row['agent_id'])}: {count_text}")
         return "\n".join(lines)
 
     def _finish_if_terminal(self):
@@ -834,7 +844,10 @@ def _agent_snapshot(agent: Agent) -> dict[str, Any]:
     agent.recalculate_inventory()
     return {
         "id": agent.id,
+        "name": _agent_label(agent),
+        "ens_name": agent.profile.get("ens_name"),
         "public_key": agent.public_key,
+        "profile": dict(agent.profile),
         "alive": agent.alive,
         "pos": {"x": agent.pos_x, "y": agent.pos_y},
         "health": round(agent.health, 2),
@@ -874,7 +887,16 @@ def _tile_snapshot(tile: Tile) -> dict[str, Any]:
         "x": tile.pos_x,
         "y": tile.pos_y,
         "type": tile.type.value,
-        "occupants": [agent.id for agent in tile.occupants if agent.alive],
+        "occupants": [
+            {
+                "id": agent.id,
+                "name": _agent_label(agent),
+                "ens_name": agent.profile.get("ens_name"),
+                "public_key": agent.public_key,
+            }
+            for agent in tile.occupants
+            if agent.alive
+        ],
         "resources": {
             str(resource): amount
             for resource, amount in tile.resources.items()
@@ -1011,6 +1033,10 @@ def _find_agent_for_demo(sim, target: Any) -> Agent | None:
 
 def _target_text(target: Any) -> str:
     if isinstance(target, dict):
+        if target.get("name"):
+            return str(target["name"])
+        if target.get("ens_name"):
+            return str(target["ens_name"])
         if "x" in target and "y" in target:
             return f"({target['x']},{target['y']})"
         if "id" in target:
@@ -1027,7 +1053,14 @@ def _plain_value(value: Any) -> str:
 def _agent_label(agent: Agent | None) -> str:
     if agent is None:
         return "A?"
-    return f"A{agent.id}"
+    return agent_display_name(agent_id=agent.id, public_key=agent.public_key, profile=agent.profile)
+
+
+def _agent_label_by_id(sim, agent_id: Any) -> str:
+    for agent in getattr(sim, "agents", []):
+        if agent.id == agent_id:
+            return _agent_label(agent)
+    return f"A{agent_id}"
 
 
 def _death_cause(agent: Agent) -> str | None:
