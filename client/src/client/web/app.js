@@ -14,6 +14,7 @@ const state = {
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
 const AGENT_PUBLIC_KEY_TEXT_RECORD = "thelastprompt.agent_public_key";
+const SEPOLIA_ENS_APP_URL = "https://sepolia.app.ens.domains/";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -21,6 +22,7 @@ const els = {
   walletStatus: $("walletStatus"),
   ensNameInput: $("ensNameInput"),
   loginButton: $("loginButton"),
+  ensRegisterLink: $("ensRegisterLink"),
   storeProfileButton: $("storeProfileButton"),
   connection: $("connection"),
   refreshButton: $("refreshButton"),
@@ -46,6 +48,7 @@ const els = {
 
 els.refreshButton.addEventListener("click", refreshAll);
 els.loginButton.addEventListener("click", loginWithMetaMask);
+els.ensRegisterLink.href = SEPOLIA_ENS_APP_URL;
 els.storeProfileButton.addEventListener("click", storeAgentKeyOnEns);
 els.playButton.addEventListener("click", togglePlay);
 els.timeline.addEventListener("input", () => {
@@ -315,6 +318,19 @@ async function loginWithMetaMask() {
     const recovered = ethers.verifyMessage(challenge.message, signature);
     if (!sameAddress(recovered, walletAddress)) throw new Error("signature mismatch");
     const ens = await resolveWalletEns(provider, walletAddress, els.ensNameInput.value);
+    if (!ens.name) {
+      const saved = await postJson("/api/profile", {
+        agent_public_key: challenge.agent_public_key,
+        wallet_address: walletAddress,
+        chain_id: challenge.chain_id,
+        signature,
+        login_message: challenge.message,
+        connected_at: new Date().toISOString(),
+      });
+      state.profile = saved.profile || state.profile;
+      showEnsRegistration(ens.reason || "no Sepolia ENS found for this wallet");
+      return;
+    }
     const profile = {
       agent_public_key: challenge.agent_public_key,
       wallet_address: walletAddress,
@@ -329,6 +345,7 @@ async function loginWithMetaMask() {
     };
     const saved = await postJson("/api/profile", profile);
     state.profile = saved.profile || profile;
+    hideEnsRegistration();
     renderWalletProfile();
   } catch (error) {
     els.walletStatus.textContent = `wallet: ${error.message || "login failed"}`;
@@ -404,32 +421,48 @@ async function ensureSepolia() {
 }
 
 async function resolveWalletEns(provider, walletAddress, preferredName = "") {
-  const result = { name: "", resolverAddress: "", agentPublicKey: "" };
+  const result = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
   let name = String(preferredName || "").trim().replace(/\.$/, "");
   if (name) {
     let preferredForward = "";
     try {
       preferredForward = await provider.resolveName(name);
     } catch (error) {
+      result.reason = `${name} does not resolve on Sepolia`;
       return result;
     }
-    if (!sameAddress(preferredForward, walletAddress)) return result;
+    if (!preferredForward) {
+      result.reason = `${name} does not resolve on Sepolia`;
+      return result;
+    }
+    if (!sameAddress(preferredForward, walletAddress)) {
+      result.reason = `${name} does not resolve to the connected wallet`;
+      return result;
+    }
   } else {
     try {
       name = await provider.lookupAddress(walletAddress);
     } catch (error) {
+      result.reason = "no primary ENS name found for this wallet on Sepolia";
       return result;
     }
   }
-  if (!name) return result;
+  if (!name) {
+    result.reason = "no primary ENS name found for this wallet on Sepolia";
+    return result;
+  }
 
   let forward = "";
   try {
     forward = await provider.resolveName(name);
   } catch (error) {
+    result.reason = `${name} does not resolve on Sepolia`;
     return result;
   }
-  if (!sameAddress(forward, walletAddress)) return result;
+  if (!sameAddress(forward, walletAddress)) {
+    result.reason = `${name} does not resolve to the connected wallet`;
+    return result;
+  }
 
   result.name = name;
   let resolver = null;
@@ -454,13 +487,37 @@ function renderWalletProfile() {
   const name = profileLabel(profile, state.live?.public_key);
   const wallet = profile.wallet_address ? shortKey(profile.wallet_address) : "disconnected";
   const textRecord = profile.profile_text_value === state.live?.public_key ? "stored" : "not stored";
-  els.walletStatus.textContent = profile.wallet_address
-    ? `wallet: ${name} · ${wallet} · ${textRecord}`
-    : "wallet: disconnected";
+  els.publicKey.textContent = `agent: ${name}`;
+  if (profile.wallet_address && !profile.ens_name) {
+    els.walletStatus.textContent = `wallet: ${wallet} · ENS required`;
+  } else {
+    els.walletStatus.textContent = profile.wallet_address
+      ? `wallet: ${name} · ${wallet} · ${textRecord}`
+      : "wallet: disconnected";
+  }
   if (profile.ens_name && els.ensNameInput.value !== profile.ens_name) {
     els.ensNameInput.value = profile.ens_name;
   }
+  const loggedIn = Boolean(profile.ens_name);
+  els.ensNameInput.hidden = loggedIn;
+  els.loginButton.hidden = loggedIn;
+  els.ensRegisterLink.hidden = loggedIn || !profile.wallet_address;
   els.storeProfileButton.hidden = !profile.ens_name || !state.live?.public_key;
+}
+
+function showEnsRegistration(message) {
+  renderWalletProfile();
+  els.walletStatus.textContent = `wallet: ${message}; create Sepolia ENS`;
+  els.ensRegisterLink.hidden = false;
+  try {
+    window.open(SEPOLIA_ENS_APP_URL, "_blank", "noopener");
+  } catch (error) {
+    // The visible link remains available when popups are blocked.
+  }
+}
+
+function hideEnsRegistration() {
+  els.ensRegisterLink.hidden = true;
 }
 
 function togglePlay() {

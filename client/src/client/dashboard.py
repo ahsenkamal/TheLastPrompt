@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from common.identity import SEPOLIA_CHAIN_ID, normalize_agent_profile, agent_display_name
+from common.logging_config import demo_log
 from common.replay_store import ReplayStore
 
 
@@ -52,7 +53,7 @@ class ClientRuntime:
     def update_profile(self, profile: dict[str, Any]) -> dict[str, Any]:
         normalized = normalize_agent_profile(profile, self.public_key)
         with self.profile_condition:
-            self.profile = {**self.profile, **normalized}
+            self.profile = normalized
             self.profile_updates.append(dict(self.profile))
             self.profile_nonce = uuid4().hex
             self.profile_condition.notify_all()
@@ -62,10 +63,13 @@ class ClientRuntime:
         with self.lock:
             return dict(self.profile)
 
-    def wait_for_profile(self, timeout: float) -> dict[str, Any]:
-        deadline = time.monotonic() + max(0.0, timeout)
+    def wait_for_profile(self, timeout: float | None, *, require_ens: bool = False) -> dict[str, Any]:
+        deadline = None if timeout is None or timeout <= 0 else time.monotonic() + timeout
         with self.profile_condition:
-            while timeout > 0 and not self.profile.get("wallet_address") and not self.profile.get("ens_name"):
+            while not _profile_ready(self.profile, require_ens=require_ens):
+                if deadline is None:
+                    self.profile_condition.wait(timeout=1.0)
+                    continue
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
@@ -185,8 +189,19 @@ def start_dashboard(public_key: str, *, host: str, port: int, db_path: str) -> C
     httpd = ThreadingHTTPServer((host, port), handler)
     thread = threading.Thread(target=httpd.serve_forever, name="client-dashboard", daemon=True)
     thread.start()
-    logger.info("client dashboard listening on http://%s:%s", host, port)
+    url = dashboard_url(host, port)
+    logger.info("client dashboard listening on %s", url)
+    demo_log(logger, "Client dashboard: %s", url)
     return runtime
+
+
+def dashboard_url(host: str, port: int) -> str:
+    browser_host = host.strip() or "127.0.0.1"
+    if browser_host in {"0.0.0.0", "::"}:
+        browser_host = "127.0.0.1"
+    if ":" in browser_host and not browser_host.startswith("["):
+        browser_host = f"[{browser_host}]"
+    return f"http://{browser_host}:{port}"
 
 
 class _DashboardHandler(SimpleHTTPRequestHandler):
@@ -275,6 +290,12 @@ def _agent_id(sim_state: dict[str, Any]) -> int | str | None:
     if isinstance(agent, dict):
         return agent.get("id")
     return None
+
+
+def _profile_ready(profile: dict[str, Any], *, require_ens: bool) -> bool:
+    if require_ens:
+        return bool(profile.get("wallet_address") and profile.get("ens_name"))
+    return bool(profile.get("wallet_address") or profile.get("ens_name"))
 
 
 def _agent_name(sim_state: dict[str, Any], agent_id: int | str | None = None) -> str:

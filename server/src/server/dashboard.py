@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from common.logging_config import demo_log
 from common.replay_store import ReplayStore
 
 from .state import State
@@ -24,7 +25,9 @@ def start_dashboard(state: State, *, host: str, port: int, db_path: str) -> Thre
     httpd = ThreadingHTTPServer((host, port), handler)
     thread = threading.Thread(target=httpd.serve_forever, name="server-dashboard", daemon=True)
     thread.start()
-    logger.info("server dashboard listening on http://%s:%s", host, port)
+    url = _dashboard_url(host, port)
+    logger.info("server dashboard listening on %s", url)
+    demo_log(logger, "Server dashboard: %s", url)
     return httpd
 
 
@@ -116,6 +119,15 @@ def _query_value(query: str, key: str) -> str | None:
         return None
     value = values[0].strip()
     return value or None
+
+
+def _dashboard_url(host: str, port: int) -> str:
+    browser_host = host.strip() or "127.0.0.1"
+    if browser_host in {"0.0.0.0", "::"}:
+        browser_host = "127.0.0.1"
+    if ":" in browser_host and not browser_host.startswith("["):
+        browser_host = f"[{browser_host}]"
+    return f"http://{browser_host}:{port}"
 
 
 def _json_default(value: Any) -> Any:

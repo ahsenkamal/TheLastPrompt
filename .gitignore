@@ -12,3 +12,4 @@ wheels/
 .codex
 server.log
 client.log
+prompt.txt
