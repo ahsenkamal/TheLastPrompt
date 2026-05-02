@@ -1,6 +1,5 @@
 import argparse
 import logging
-import webbrowser
 from pathlib import Path
 
 from common import axl
@@ -57,7 +56,6 @@ def main():
         )
         url = dashboard_url(config.CLIENT_DASHBOARD_HOST, config.CLIENT_DASHBOARD_PORT)
         if config.CLIENT_WALLET_LOGIN_REQUIRED:
-            _open_dashboard(url)
             profile = _wait_for_ens_login(runtime, url)
         elif config.CLIENT_WALLET_LOGIN_WAIT_SECONDS > 0:
             logger.info(
@@ -72,19 +70,10 @@ def main():
     client_loop(self_public_key, runtime)
 
 
-def _open_dashboard(url: str) -> None:
-    if not config.CLIENT_DASHBOARD_OPEN_BROWSER:
-        return
-    try:
-        webbrowser.open(url, new=2)
-    except webbrowser.Error as error:
-        logger.debug("could not open client dashboard url=%s error=%s", url, error)
-
-
 def _wait_for_ens_login(runtime, url: str) -> dict:
     timeout = config.CLIENT_WALLET_LOGIN_WAIT_SECONDS
     timeout_text = "without a timeout" if timeout <= 0 else f"for up to {timeout:.1f}s"
-    logger.info("MetaMask ENS login required before matchmaking; open %s", url)
+    logger.info("MetaMask ENS login required before matchmaking; click %s", url)
     demo_log(logger, "MetaMask ENS login required before matchmaking: %s", url)
     logger.info("waiting %s for an ENS-backed wallet profile", timeout_text)
     profile = runtime.wait_for_profile(timeout, require_ens=True)
