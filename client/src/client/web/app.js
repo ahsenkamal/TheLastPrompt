@@ -13,19 +13,17 @@ const state = {
 };
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
-const SEPOLIA_READ_RPC_URL = "https://ethereum-sepolia.publicnode.com";
+const SEPOLIA_READ_RPC_URL = new URL("/api/sepolia-rpc", window.location.href).toString();
+const SEPOLIA_WALLET_RPC_URL = "https://ethereum-sepolia.publicnode.com";
 const AGENT_PUBLIC_KEY_TEXT_RECORD = "thelastprompt.agent_public_key";
 const SEPOLIA_ENS_APP_URL = "https://sepolia.app.ens.domains/";
 const ENS_REGISTRY_ADDRESS = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
-const ENS_BASE_REGISTRAR_ADDRESS = "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85";
-const ENS_NAME_WRAPPER_ADDRESS = "0x0635513f179D50A207757E05759CbD106d7dFcE8";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const $ = (id) => document.getElementById(id);
 const els = {
   publicKey: $("publicKey"),
   walletStatus: $("walletStatus"),
-  ensNameInput: $("ensNameInput"),
   loginButton: $("loginButton"),
   ensRegisterLink: $("ensRegisterLink"),
   storeProfileButton: $("storeProfileButton"),
@@ -326,8 +324,9 @@ async function loginWithMetaMask() {
     const ensProvider = new ethers.JsonRpcProvider(SEPOLIA_READ_RPC_URL, {
       chainId: Number(challenge.chain_id),
       name: "sepolia",
+      ensAddress: ENS_REGISTRY_ADDRESS,
     });
-    const ens = await resolveWalletEns(ensProvider, walletAddress, els.ensNameInput.value);
+    const ens = await resolveWalletEns(ensProvider, walletAddress);
     if (!ens.name) {
       const saved = await postJson("/api/profile", {
         agent_public_key: challenge.agent_public_key,
@@ -338,7 +337,7 @@ async function loginWithMetaMask() {
         connected_at: new Date().toISOString(),
       });
       state.profile = saved.profile || state.profile;
-      showEnsRegistration(ens.reason || "no Sepolia ENS found for this wallet");
+      showEnsRegistration(ens.reason || "no Sepolia primary ENS found for this wallet");
       return;
     }
     const profile = {
@@ -425,44 +424,41 @@ async function ensureSepolia() {
         chainId: SEPOLIA_CHAIN_ID,
         chainName: "Sepolia",
         nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: [SEPOLIA_READ_RPC_URL],
+        rpcUrls: [SEPOLIA_WALLET_RPC_URL],
         blockExplorerUrls: ["https://sepolia.etherscan.io"],
       }],
     });
   }
 }
 
-async function resolveWalletEns(provider, walletAddress, preferredName = "") {
+async function resolveWalletEns(provider, walletAddress) {
   const result = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
-  let name = normalizeEnsInput(preferredName);
-  if (!name) {
-    try {
-      name = await provider.lookupAddress(walletAddress);
-    } catch (error) {
-      name = "";
-    }
-    if (!name) name = await manualReverseName(provider, walletAddress);
-    name = normalizeEnsInput(name);
+  let name = "";
+  try {
+    name = await provider.lookupAddress(walletAddress);
+  } catch (error) {
+    name = "";
   }
+  if (!name) name = await reverseName(provider, walletAddress);
+  name = normalizeEnsName(name);
   if (!name) {
-    result.reason = "enter the Sepolia ENS name you created";
+    result.reason = "no Sepolia primary ENS reverse record found for this wallet";
     return result;
   }
 
-  const ownership = await verifyEnsControl(provider, name, walletAddress);
-  if (!ownership.ok) {
-    result.reason = ownership.reason || `${name} is not controlled by the connected wallet`;
+  const resolverInfo = await forwardResolverDetails(provider, name);
+  if (!sameAddress(resolverInfo.forwardAddress, walletAddress)) {
+    result.reason = `${name} does not resolve back to the connected wallet`;
     return result;
   }
 
-  const resolverInfo = await resolverDetails(provider, name);
   result.name = name;
   result.resolverAddress = resolverInfo.resolverAddress;
   result.agentPublicKey = resolverInfo.agentPublicKey;
   return result;
 }
 
-async function manualReverseName(provider, walletAddress) {
+async function reverseName(provider, walletAddress) {
   const reverseNode = reverseNodeForAddress(walletAddress);
   try {
     const registry = new ethers.Contract(
@@ -487,98 +483,49 @@ function reverseNodeForAddress(walletAddress) {
   return ethers.namehash(`${String(walletAddress).toLowerCase().replace(/^0x/, "")}.addr.reverse`);
 }
 
-async function verifyEnsControl(provider, name, walletAddress) {
-  let forwardAddress = "";
-  try {
-    forwardAddress = await provider.resolveName(name);
-  } catch (error) {
-    forwardAddress = "";
-  }
-  if (sameAddress(forwardAddress, walletAddress)) return { ok: true };
-
+async function forwardResolverDetails(provider, name) {
+  const result = { resolverAddress: "", forwardAddress: "", agentPublicKey: "" };
   const node = ethers.namehash(name);
-  let registryOwner = "";
+  let resolverAddress = "";
   try {
     const registry = new ethers.Contract(
       ENS_REGISTRY_ADDRESS,
-      ["function owner(bytes32 node) view returns (address)"],
+      ["function resolver(bytes32 node) view returns (address)"],
       provider,
     );
-    registryOwner = await registry.owner(node);
-  } catch (error) {
-    return { ok: false, reason: `could not check ${name} on Sepolia ENS` };
-  }
-
-  if (!registryOwner || sameAddress(registryOwner, ZERO_ADDRESS)) {
-    return { ok: false, reason: `${name} is not registered on Sepolia` };
-  }
-  if (sameAddress(registryOwner, walletAddress)) return { ok: true };
-
-  if (sameAddress(registryOwner, ENS_NAME_WRAPPER_ADDRESS)) {
-    const wrapperOwner = await nameWrapperOwner(provider, node);
-    if (sameAddress(wrapperOwner, walletAddress)) return { ok: true };
-  }
-
-  const registrant = await ethBaseRegistrant(provider, name);
-  if (sameAddress(registrant, walletAddress)) return { ok: true };
-
-  if (forwardAddress) {
-    return { ok: false, reason: `${name} resolves to a different wallet` };
-  }
-  return { ok: false, reason: `${name} is registered but not controlled by the connected wallet` };
-}
-
-async function nameWrapperOwner(provider, node) {
-  try {
-    const wrapper = new ethers.Contract(
-      ENS_NAME_WRAPPER_ADDRESS,
-      ["function ownerOf(uint256 id) view returns (address)"],
-      provider,
-    );
-    return await wrapper.ownerOf(BigInt(node));
-  } catch (error) {
-    return "";
-  }
-}
-
-async function ethBaseRegistrant(provider, name) {
-  const labels = String(name || "").split(".");
-  if (labels.length !== 2 || labels[1] !== "eth") return "";
-  try {
-    const registrar = new ethers.Contract(
-      ENS_BASE_REGISTRAR_ADDRESS,
-      ["function ownerOf(uint256 tokenId) view returns (address)"],
-      provider,
-    );
-    return await registrar.ownerOf(BigInt(ethers.id(labels[0])));
-  } catch (error) {
-    return "";
-  }
-}
-
-async function resolverDetails(provider, name) {
-  const result = { resolverAddress: "", agentPublicKey: "" };
-  let resolver = null;
-  try {
-    resolver = await provider.getResolver(name);
+    resolverAddress = await registry.resolver(node);
   } catch (error) {
     return result;
   }
-  result.resolverAddress = getResolverAddress(resolver) || "";
-  if (resolver) {
-    try {
-      result.agentPublicKey = await resolver.getText(AGENT_PUBLIC_KEY_TEXT_RECORD) || "";
-    } catch (error) {
-      result.agentPublicKey = "";
-    }
+  if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) {
+    return result;
+  }
+  result.resolverAddress = resolverAddress;
+
+  const resolver = new ethers.Contract(
+    resolverAddress,
+    [
+      "function addr(bytes32 node) view returns (address)",
+      "function text(bytes32 node,string key) view returns (string)",
+    ],
+    provider,
+  );
+  try {
+    result.forwardAddress = await resolver.addr(node);
+  } catch (error) {
+    result.forwardAddress = "";
+  }
+  try {
+    result.agentPublicKey = await resolver.text(node, AGENT_PUBLIC_KEY_TEXT_RECORD) || "";
+  } catch (error) {
+    result.agentPublicKey = "";
   }
   return result;
 }
 
-function normalizeEnsInput(value) {
+function normalizeEnsName(value) {
   const text = String(value || "").trim().replace(/\.$/, "").toLowerCase();
-  if (!text) return "";
-  return text.includes(".") ? text : `${text}.eth`;
+  return text.includes(".") ? text : "";
 }
 
 function renderWalletProfile() {
@@ -594,20 +541,16 @@ function renderWalletProfile() {
       ? `wallet: ${name} · ${wallet} · ${textRecord}`
       : "wallet: disconnected";
   }
-  if (profile.ens_name && els.ensNameInput.value !== profile.ens_name) {
-    els.ensNameInput.value = profile.ens_name;
-  }
   const loggedIn = Boolean(profile.ens_name);
-  els.ensNameInput.hidden = loggedIn;
   els.loginButton.hidden = loggedIn;
-  els.loginButton.textContent = profile.wallet_address && !loggedIn ? "Verify ENS" : "Login with MetaMask";
+  els.loginButton.textContent = "Login with MetaMask";
   els.ensRegisterLink.hidden = loggedIn || !profile.wallet_address;
   els.storeProfileButton.hidden = !profile.ens_name || !state.live?.public_key;
 }
 
 function showEnsRegistration(message) {
   renderWalletProfile();
-  els.walletStatus.textContent = `wallet: ${message}; create Sepolia ENS`;
+  els.walletStatus.textContent = `wallet: ${message}`;
   els.ensRegisterLink.hidden = false;
 }
 

@@ -9,11 +9,15 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib import request
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
 from common.identity import SEPOLIA_CHAIN_ID, normalize_agent_profile, agent_display_name
 from common.logging_config import demo_log
 from common.replay_store import ReplayStore
+
+from . import config
 
 
 logger = logging.getLogger(__name__)
@@ -250,11 +254,18 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/profile":
             payload = self._read_json()
-            if payload is None:
+            if not isinstance(payload, dict):
                 self._send_json({"error": "invalid JSON"}, status=400)
                 return
             profile = self.runtime.update_profile(payload)
             self._send_json({"profile": profile})
+            return
+        if parsed.path == "/api/sepolia-rpc":
+            payload = self._read_json(max_bytes=1_048_576)
+            if payload is None:
+                self._send_json({"error": "invalid JSON"}, status=400)
+                return
+            self._proxy_sepolia_rpc(payload)
             return
 
         self._send_json({"error": "not found"}, status=404)
@@ -271,18 +282,53 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> dict[str, Any] | None:
+    def _read_json(self, *, max_bytes: int = 32768) -> dict[str, Any] | list[Any] | None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             return None
-        if length <= 0 or length > 32768:
+        if length <= 0 or length > max_bytes:
             return None
         try:
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return None
-        return payload if isinstance(payload, dict) else None
+        return payload if isinstance(payload, (dict, list)) else None
+
+    def _proxy_sepolia_rpc(self, payload: dict[str, Any] | list[Any]) -> None:
+        body = json.dumps(payload).encode("utf-8")
+        rpc_request = request.Request(
+            config.SEPOLIA_READ_RPC_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "TheLastPrompt/0.1",
+            },
+            method="POST",
+        )
+        try:
+            with request.urlopen(rpc_request, timeout=20) as response:
+                response_body = response.read()
+        except HTTPError as error:
+            response_body = error.read() or json.dumps({"error": str(error)}).encode("utf-8")
+            self.send_response(error.code)
+            self.send_header("Content-Type", error.headers.get("Content-Type", "application/json"))
+            self.send_header("Content-Length", str(len(response_body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(response_body)
+            return
+        except URLError as error:
+            self._send_json({"error": f"Sepolia RPC unavailable: {error.reason}"}, status=502)
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(response_body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(response_body)
 
 
 def _agent_id(sim_state: dict[str, Any]) -> int | str | None:
