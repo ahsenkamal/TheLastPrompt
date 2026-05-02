@@ -69,6 +69,7 @@ OLLAMA_STREAM_LOG = _get_bool("OLLAMA_STREAM_LOG", os.getenv("LOG_LEVEL", "").up
 OLLAMA_STREAM_JSON_LOG = _get_bool("OLLAMA_STREAM_JSON_LOG", False)
 
 CLIENT_REPLAY_DB_PATH = os.getenv("CLIENT_REPLAY_DB_PATH", "/tmp/thelastprompt-client/replays.sqlite3")
+CLIENT_LLM_ACTION_LOG_DIR = os.getenv("CLIENT_LLM_ACTION_LOG_DIR", "/tmp/thelastprompt-client/action-llm-calls")
 CLIENT_DASHBOARD_ENABLED = _get_bool("CLIENT_DASHBOARD_ENABLED", True)
 CLIENT_DASHBOARD_HOST = os.getenv("CLIENT_DASHBOARD_HOST", "127.0.0.1")
 CLIENT_DASHBOARD_PORT = _get_int("CLIENT_DASHBOARD_PORT", 8766)

@@ -792,7 +792,7 @@ class Simulation:
             "seed": self.seed,
             "tick": self.iteration,
             "phase": self.phase,
-            "temp": round(self.temp, 2),
+            "temp": round(self.temp, 1),
             "game_over": self.game_over,
             "end_reason": self.end_reason,
             "ended_tick": self.ended_tick,

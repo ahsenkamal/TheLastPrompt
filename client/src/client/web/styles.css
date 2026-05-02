@@ -279,6 +279,19 @@ section {
 .tile.mountain { background: var(--mountain); }
 .tile.hazard { outline: 2px solid var(--red); outline-offset: -3px; }
 
+.tile.hidden-tile {
+  background: #000;
+  border-color: rgba(255,255,255,.06);
+}
+
+.tile.hidden-tile::before {
+  background: none;
+}
+
+.tile.hidden-tile .coords {
+  color: rgba(255,255,255,.28);
+}
+
 .coords,
 .resources,
 .occupants,

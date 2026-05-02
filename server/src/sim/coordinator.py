@@ -46,11 +46,17 @@ def create_state_content(sim: "Simulation", agent: Agent) -> dict[str, Any]:
     agent.recalculate_inventory()
     agent.clamp_metrics()
     game_over = bool(getattr(sim, "game_over", False))
+    map_height = len(sim.map.grid)
+    map_width = len(sim.map.grid[0]) if map_height else 0
     return {
         "sim_id": sim.id,
         "tick": sim.iteration,
         "phase": getattr(sim, "phase", "day"),
-        "temp": sim.temp,
+        "temp": round(sim.temp, 1),
+        "map_size": {
+            "width": map_width,
+            "height": map_height,
+        },
         "sim_status": {
             "game_over": game_over,
             "end_reason": getattr(sim, "end_reason", None),

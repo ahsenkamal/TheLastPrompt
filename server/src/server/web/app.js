@@ -107,8 +107,8 @@ function renderLiveList() {
   els.queueCount.textContent = `${state.live?.queue?.length || 0} queued`;
   els.liveSims.innerHTML = sims.length ? sims.map((sim) => `
     <button class="item ${state.mode === "live" && state.selectedId === sim.sim_id ? "active" : ""}" data-live="${sim.sim_id}">
-      <strong>${shortKey(sim.sim_id)}</strong>
-      <span class="muted">tick ${sim.tick} · ${sim.phase || "day"} · ${sim.alive_count}/${sim.agents.length} alive · ${sim.temp}C</span>
+      <strong>${shortSimId(sim.sim_id)}</strong>
+      <span class="muted">tick ${sim.tick} · ${sim.phase || "day"} · ${sim.alive_count}/${sim.agents.length} alive · ${formatTemp(sim.temp)}C</span>
     </button>
   `).join("") : `<div class="muted">No active simulations.</div>`;
   els.liveSims.querySelectorAll("[data-live]").forEach((node) => {
@@ -122,7 +122,7 @@ function renderArchiveList() {
     const summary = sim.summary || {};
     return `
       <button class="item ${state.mode === "archive" && state.selectedId === sim.sim_id ? "active" : ""}" data-archive="${sim.sim_id}">
-        <strong>${shortKey(sim.sim_id)}</strong>
+        <strong>${shortSimId(sim.sim_id)}</strong>
         <span class="muted">${sim.status} · tick ${summary.tick ?? "?"} · ${summary.phase || "day"} · ${new Date(sim.updated_at * 1000).toLocaleTimeString()}</span>
       </button>
     `;
@@ -147,7 +147,7 @@ function render() {
   els.modeLabel.textContent = state.mode === "live" ? "Live View" : "Replay";
   const frame = state.mode === "archive" ? state.ticks[state.replayIndex] : null;
   const frameKind = frame?.kind ? ` · ${frame.kind}` : "";
-  els.simTitle.textContent = `${shortKey(snapshot.sim_id)} · tick ${snapshot.tick} · ${snapshot.phase || "day"}`;
+  els.simTitle.textContent = `${shortSimId(snapshot.sim_id)} · tick ${snapshot.tick} · ${snapshot.phase || "day"}`;
   els.tickLabel.textContent = `tick ${snapshot.tick}${frameKind}`;
   els.timeline.max = Math.max(0, state.mode === "archive" ? state.ticks.length - 1 : snapshot.max_ticks || 0);
   els.timeline.value = state.mode === "archive" ? state.replayIndex : snapshot.tick || 0;
@@ -180,7 +180,7 @@ function renderMap(snapshot) {
       return `<span class="agent-dot" title="${escapeHtml(label)}">${escapeHtml(compactLabel(label))}</span>`;
     }).join("");
     return `
-      <div class="tile ${tile.type} ${tile.hazard ? "hazard" : ""}" title="${tile.type}${tile.hazard ? ` · ${tile.hazard}` : ""}">
+      <div class="tile ${tile.type} ${tile.hazard ? "hazard" : ""}" title="${escapeHtml(tileTooltip(tile, snapshot))}">
         <span class="coords">${tile.x},${tile.y}</span>
         <span class="tile-type">${tile.type.slice(0, 1).toUpperCase()}</span>
         <span class="occupants">${occupants}</span>
@@ -202,8 +202,8 @@ function renderAgents(snapshot) {
       </div>
       <div class="bars">
         ${bar("health", agent.health)}
-        ${bar("hunger", 100 - agent.hunger)}
-        ${bar("thirst", 100 - agent.thirst)}
+        ${bar("hunger", agent.hunger)}
+        ${bar("thirst", agent.thirst)}
         ${bar("warmth", agent.warmth)}
       </div>
     </div>
@@ -277,6 +277,17 @@ function shortKey(value) {
   return String(value).length > 12 ? `${String(value).slice(0, 6)}...${String(value).slice(-4)}` : String(value);
 }
 
+function shortSimId(value) {
+  if (!value) return "sim_...";
+  const text = String(value);
+  return `sim_${text.length > 6 ? `${text.slice(0, 6)}...` : text}`;
+}
+
+function formatTemp(value) {
+  const temp = Number(value);
+  return Number.isFinite(temp) ? temp.toFixed(1) : "?";
+}
+
 function agentLabel(agent, snapshot) {
   if (agent && typeof agent === "object") {
     if (agent.name) return String(agent.name);
@@ -308,6 +319,64 @@ function agentLabelByPublicKey(snapshot, publicKey) {
     if (row.public_key === publicKey) return row.name || row.ens_name || shortKey(publicKey);
   }
   return shortKey(publicKey);
+}
+
+function tileTooltip(tile, snapshot) {
+  const lines = [
+    `${tile.x},${tile.y}`,
+    `type: ${tile.type || "unknown"}`,
+  ];
+  if (tile.hazard) lines.push(`hazard: ${tile.hazard}`);
+  const occupants = (tile.occupants || []).map((occupant) => agentLabel(occupant, snapshot));
+  lines.push(`occupants: ${occupants.length ? occupants.join(", ") : "none"}`);
+  lines.push(`resources: ${amountsText(tile.resources)}`);
+  lines.push(`shelters: ${listText(tile.shelters)}`);
+  lines.push(`storages: ${storagesText(tile.storages)}`);
+  lines.push(`crops: ${cropsText(tile.crops)}`);
+  lines.push(`traps: ${trapsText(tile.traps)}`);
+  return lines.join("\n");
+}
+
+function amountsText(values) {
+  const entries = Object.entries(values || {}).filter(([, amount]) => Number(amount) > 0);
+  return entries.length ? entries.map(([name, amount]) => `${name} ${amount}`).join(", ") : "none";
+}
+
+function listText(values) {
+  if (Array.isArray(values)) return values.length ? values.join(", ") : "none";
+  if (values && typeof values === "object") {
+    const keys = Object.keys(values);
+    return keys.length ? keys.join(", ") : "none";
+  }
+  return "none";
+}
+
+function storagesText(storages) {
+  if (!storages || typeof storages !== "object" || Array.isArray(storages)) return listText(storages);
+  const entries = Object.entries(storages);
+  if (!entries.length) return "none";
+  return entries.map(([owner, resources]) => `${owner}: ${amountsText(resources)}`).join("; ");
+}
+
+function cropsText(crops) {
+  if (!Array.isArray(crops) || !crops.length) return "none";
+  return crops.map((crop) => {
+    if (!crop || typeof crop !== "object") return String(crop);
+    const name = crop.resource || crop.type || crop.crop || "crop";
+    const amount = crop.amount !== undefined ? ` x${crop.amount}` : "";
+    const ready = crop.ready_iteration !== undefined ? ` ready:${crop.ready_iteration}` : "";
+    return `${name}${amount}${ready}`;
+  }).join(", ");
+}
+
+function trapsText(traps) {
+  if (!Array.isArray(traps) || !traps.length) return "none";
+  return traps.map((trap) => {
+    if (!trap || typeof trap !== "object") return String(trap);
+    const owner = trap.owner ? `owner:${trap.owner}` : "trap";
+    const ready = trap.ready_iteration !== undefined && trap.ready_iteration !== null ? ` ready:${trap.ready_iteration}` : "";
+    return `${owner}${ready}`;
+  }).join(", ");
 }
 
 function compactLabel(label) {

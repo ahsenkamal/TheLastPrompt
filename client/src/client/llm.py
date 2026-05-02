@@ -363,6 +363,10 @@ def get_llm_response(prompt: str) -> dict[str, Any]:
         return {"actions": [{"action": "wait"}], "messages": [], "reasoning": ""}
 
 
+def create_action_log_payload(prompt: str) -> dict[str, Any]:
+    return _create_chat_payload(prompt)
+
+
 def get_chat_response(prompt: str) -> dict[str, str]:
     try:
         payload = _create_direct_chat_payload(prompt)

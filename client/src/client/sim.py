@@ -6,14 +6,15 @@ from copy import deepcopy
 import time
 import json
 import logging
+from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Thread
 from typing import Any
 
-from .llm import get_chat_response, get_llm_response, get_plan_response, get_summary_response
+from .llm import create_action_log_payload, get_chat_response, get_llm_response, get_plan_response, get_summary_response
 from .state import State
 from common.identity import agent_display_name, profile_matches_name
-from common.logging_config import demo_log
+from common.logging_config import demo_log, is_demo_logging
 
 ACTION_KEYS = ("action", "target", "consumable", "item")
 LABEL_TARGET_ACTIONS = {"attack", "trade", "talk_to"}
@@ -214,6 +215,7 @@ def _client_loop(self_public_key: str, runtime: Any | None, inbox: AxlInbox):
 
         # get llm response
         llm_response = get_llm_response(final_prompt)
+        _record_action_llm_artifact(state, create_action_log_payload(final_prompt), llm_response)
         logger.info(
             "llm decision tick=%s actions=%s messages=%s",
             state.tick,
@@ -1620,6 +1622,48 @@ def _llm_state_description(state: State) -> str:
     prompt_state["talk_phase"] = _sanitize_llm_value(state, deepcopy(state.talk_phase))
     prompt_state["state_history_length"] = len(state.state_history)
     return json.dumps(prompt_state, indent=2, ensure_ascii=False)
+
+
+def _record_action_llm_artifact(state: State, request_payload: dict[str, Any], response: dict[str, Any]) -> None:
+    if not is_demo_logging():
+        return
+
+    sim_id = str(state.sim_state.get("sim_id") or "unmatched")
+    tick = state.tick
+    safe_sim_id = "".join(char if char.isalnum() or char in {"-", "_"} else "_" for char in sim_id)[:96] or "unmatched"
+    output_dir = Path(config.CLIENT_LLM_ACTION_LOG_DIR).expanduser() / safe_sim_id
+    artifact = {
+        "sim_id": sim_id,
+        "tick": tick,
+        "created_at": time.time(),
+        "model": config.OLLAMA_MODEL,
+        "prompt": _payload_prompt_text(request_payload),
+        "request": request_payload,
+        "response": response,
+    }
+
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        path = output_dir / f"tick_{tick:04d}_action.json"
+        path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info("stored action LLM artifact tick=%s path=%s", tick, path)
+    except OSError as exc:
+        logger.warning("failed to store action LLM artifact tick=%s: %s", tick, exc)
+
+
+def _payload_prompt_text(payload: dict[str, Any]) -> str:
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return ""
+
+    parts = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "message").upper()
+        content = str(message.get("content") or "")
+        parts.append(f"{role}:\n{content}")
+    return "\n\n".join(parts)
 
 
 def _llm_valid_actions(state: State) -> list[dict[str, Any]]:

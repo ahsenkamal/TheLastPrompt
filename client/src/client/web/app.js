@@ -130,10 +130,10 @@ function render() {
 
   const agent = simState.agent || {};
   els.modeLabel.textContent = state.mode === "live" ? "Live Sight" : "Replay";
-  els.simTitle.textContent = `${shortKey(simState.sim_id)} · ${simState.phase || "day"} · ${simState.temp}C`;
+  els.simTitle.textContent = `${shortSimId(simState.sim_id)} · ${simState.phase || "day"} · ${formatTemp(simState.temp)}C`;
   els.agentName.textContent = agentLabel(agent);
   els.tick.textContent = `tick ${simState.tick ?? 0}`;
-  els.actionBudget.textContent = `budget ${agent.action_budget ?? "?"}`;
+  els.actionBudget.textContent = "";
   els.timeline.max = Math.max(0, state.mode === "history" ? state.ticks.length - 1 : simState.sim_status?.max_ticks || 0);
   els.timeline.value = state.mode === "history" ? state.replayIndex : simState.tick || 0;
   els.timeline.disabled = state.mode !== "history";
@@ -176,8 +176,8 @@ function currentChats(simState) {
 function renderMeters(agent) {
   els.meters.innerHTML = [
     meter("health", agent.health),
-    meter("hunger", 100 - Number(agent.hunger || 0)),
-    meter("thirst", 100 - Number(agent.thirst || 0)),
+    meter("hunger", agent.hunger),
+    meter("thirst", agent.thirst),
     meter("warmth", agent.warmth),
     meter("mental", agent.mental_health),
   ].join("");
@@ -203,25 +203,39 @@ function renderActions(actions) {
 
 function renderMap(simState) {
   const tiles = (simState.visible_map || []).filter((tile) => Number.isInteger(tile.x) && Number.isInteger(tile.y));
+  const mapSize = simState.map_size || {};
+  const fullWidth = Number.isInteger(mapSize.width) && mapSize.width > 0 ? mapSize.width : 0;
+  const fullHeight = Number.isInteger(mapSize.height) && mapSize.height > 0 ? mapSize.height : 0;
   if (!tiles.length) {
+    if (fullWidth && fullHeight) {
+      els.mapGrid.style.gridTemplateColumns = `repeat(${fullWidth}, minmax(0, 1fr))`;
+      const cells = [];
+      for (let y = 0; y < fullHeight; y += 1) {
+        for (let x = 0; x < fullWidth; x += 1) {
+          cells.push(hiddenTileHtml(x, y));
+        }
+      }
+      els.mapGrid.innerHTML = cells.join("");
+      return;
+    }
     els.mapGrid.innerHTML = `<div class="muted">No visible tiles.</div>`;
     return;
   }
 
   const xs = tiles.map((tile) => tile.x);
   const ys = tiles.map((tile) => tile.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
+  const width = fullWidth || Math.max(...xs) - Math.min(...xs) + 1;
+  const height = fullHeight || Math.max(...ys) - Math.min(...ys) + 1;
+  const minX = fullWidth ? 0 : Math.min(...xs);
+  const minY = fullHeight ? 0 : Math.min(...ys);
   const byPos = new Map(tiles.map((tile) => [`${tile.x},${tile.y}`, tile]));
-  els.mapGrid.style.gridTemplateColumns = `repeat(${maxX - minX + 1}, minmax(0, 1fr))`;
+  els.mapGrid.style.gridTemplateColumns = `repeat(${width}, minmax(0, 1fr))`;
 
   const cells = [];
-  for (let y = minY; y <= maxY; y += 1) {
-    for (let x = minX; x <= maxX; x += 1) {
+  for (let y = minY; y < minY + height; y += 1) {
+    for (let x = minX; x < minX + width; x += 1) {
       const tile = byPos.get(`${x},${y}`);
-      cells.push(tile ? tileHtml(tile, simState.agent) : `<div></div>`);
+      cells.push(tile ? tileHtml(tile, simState.agent) : hiddenTileHtml(x, y));
     }
   }
   els.mapGrid.innerHTML = cells.join("");
@@ -238,13 +252,22 @@ function tileHtml(tile, selfAgent) {
     })
     .join("");
   const shelters = (tile.shelters || []).length;
+  const title = tileTooltip(tile, selfAgent);
   return `
-    <div class="tile ${tile.type} ${tile.hazard ? "hazard" : ""}">
+    <div class="tile ${tile.type} ${tile.hazard ? "hazard" : ""}" title="${escapeHtml(title)}">
       <span class="coords">${tile.x},${tile.y}</span>
       <span class="shelter">${shelters ? `S${shelters}` : ""}</span>
       <span class="tile-type">${tile.type.slice(0, 1).toUpperCase()}</span>
       <span class="occupants">${occupants}</span>
       <span class="resources">${resources ? `R${resources}` : ""}</span>
+    </div>
+  `;
+}
+
+function hiddenTileHtml(x, y) {
+  return `
+    <div class="tile hidden-tile" title="${escapeHtml(`${x},${y}\nnot visible`)}">
+      <span class="coords">${x},${y}</span>
     </div>
   `;
 }
@@ -280,10 +303,10 @@ function renderChat(chats, simState) {
 function renderHistory() {
   els.historyCount.textContent = `${state.history.length} sims`;
   els.history.innerHTML = [
-    state.live?.state ? `<button class="history-item ${state.mode === "live" ? "active" : ""}" id="liveSelect"><strong>Live</strong><span class="muted">${shortKey(state.live.state.sim_id)} · tick ${state.live.state.tick} · ${state.live.state.phase || "day"}</span></button>` : "",
+    state.live?.state ? `<button class="history-item ${state.mode === "live" ? "active" : ""}" id="liveSelect"><strong>Live</strong><span class="muted">${shortSimId(state.live.state.sim_id)} · tick ${state.live.state.tick} · ${state.live.state.phase || "day"}</span></button>` : "",
     ...state.history.map((sim) => `
       <button class="history-item ${state.mode === "history" && state.selectedId === sim.sim_id ? "active" : ""}" data-sim="${sim.sim_id}">
-        <strong>${shortKey(sim.sim_id)}</strong>
+        <strong>${shortSimId(sim.sim_id)}</strong>
         <span class="muted">${sim.status} · ${sim.summary?.phase || "day"} · ${new Date(sim.updated_at * 1000).toLocaleTimeString()}</span>
       </button>
     `),
@@ -505,7 +528,8 @@ function renderWalletProfile() {
   const profile = state.profile || {};
   const name = profileLabel(profile, state.live?.public_key);
   const wallet = profile.wallet_address ? shortKey(profile.wallet_address) : "disconnected";
-  const textRecord = profile.profile_text_value === state.live?.public_key ? "stored" : "not stored";
+  const agentKeyStored = Boolean(state.live?.public_key && profile.profile_text_value === state.live.public_key);
+  const textRecord = agentKeyStored ? "stored" : "not stored";
   els.publicKey.textContent = `agent: ${name}`;
   if (state.walletMessage && !profile.ens_name) {
     els.walletStatus.textContent = state.walletMessage;
@@ -520,7 +544,7 @@ function renderWalletProfile() {
   els.loginButton.hidden = loggedIn;
   els.loginButton.textContent = "Login with MetaMask";
   els.ensRegisterLink.hidden = loggedIn || !profile.wallet_address;
-  els.storeProfileButton.hidden = !profile.ens_name || !state.live?.public_key;
+  els.storeProfileButton.hidden = !profile.ens_name || !state.live?.public_key || agentKeyStored;
 }
 
 function showEnsRegistration(message) {
@@ -574,6 +598,17 @@ function meter(name, value) {
 function shortKey(value) {
   if (!value) return "...";
   return String(value).length > 14 ? `${String(value).slice(0, 7)}...${String(value).slice(-4)}` : String(value);
+}
+
+function shortSimId(value) {
+  if (!value) return "sim_...";
+  const text = String(value);
+  return `sim_${text.length > 6 ? `${text.slice(0, 6)}...` : text}`;
+}
+
+function formatTemp(value) {
+  const temp = Number(value);
+  return Number.isFinite(temp) ? temp.toFixed(1) : "?";
 }
 
 function profileLabel(profile, fallbackPublicKey) {
@@ -640,6 +675,64 @@ function knownAgents(simState) {
     }
   }
   return agents;
+}
+
+function tileTooltip(tile, selfAgent) {
+  const lines = [
+    `${tile.x},${tile.y}`,
+    `type: ${tile.type || "unknown"}`,
+  ];
+  if (tile.hazard) lines.push(`hazard: ${tile.hazard}`);
+
+  const occupants = (tile.occupants || [])
+    .filter((agent) => agent.alive !== false)
+    .map((agent) => {
+      const self = agent.id === selfAgent?.id || agent.public_key === selfAgent?.public_key;
+      const tags = Array.isArray(agent.condition) ? agent.condition.join(", ") : "";
+      return `${self ? "You" : agentLabel(agent)}${tags ? ` (${tags})` : ""}`;
+    });
+  lines.push(`occupants: ${occupants.length ? occupants.join(", ") : "none"}`);
+  lines.push(`resources: ${amountsText(tile.resources)}`);
+  lines.push(`shelters: ${listText(tile.shelters)}`);
+  lines.push(`storages: ${listText(tile.storages)}`);
+  lines.push(`crops: ${cropsText(tile.crops)}`);
+  lines.push(`traps: ${trapsText(tile.traps)}`);
+  return lines.join("\n");
+}
+
+function amountsText(values) {
+  const entries = Object.entries(values || {}).filter(([, amount]) => Number(amount) > 0);
+  return entries.length ? entries.map(([name, amount]) => `${name} ${amount}`).join(", ") : "none";
+}
+
+function listText(values) {
+  if (Array.isArray(values)) return values.length ? values.join(", ") : "none";
+  if (values && typeof values === "object") {
+    const keys = Object.keys(values);
+    return keys.length ? keys.join(", ") : "none";
+  }
+  return "none";
+}
+
+function cropsText(crops) {
+  if (!Array.isArray(crops) || !crops.length) return "none";
+  return crops.map((crop) => {
+    if (!crop || typeof crop !== "object") return String(crop);
+    const name = crop.resource || crop.type || crop.crop || "crop";
+    const amount = crop.amount !== undefined ? ` x${crop.amount}` : "";
+    const ready = crop.ready_iteration !== undefined ? ` ready:${crop.ready_iteration}` : "";
+    return `${name}${amount}${ready}`;
+  }).join(", ");
+}
+
+function trapsText(traps) {
+  if (!Array.isArray(traps) || !traps.length) return "none";
+  return traps.map((trap) => {
+    if (!trap || typeof trap !== "object") return String(trap);
+    const owner = trap.owner ? `owner:${trap.owner}` : "trap";
+    const ready = trap.ready_iteration !== undefined && trap.ready_iteration !== null ? ` ready:${trap.ready_iteration}` : "";
+    return `${owner}${ready}`;
+  }).join(", ");
 }
 
 function getResolverAddress(resolver) {
