@@ -301,6 +301,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         return payload if isinstance(payload, (dict, list)) else None
 
     def _proxy_sepolia_rpc(self, payload: dict[str, Any] | list[Any]) -> None:
+        logger.debug("sepolia rpc request %s", _rpc_summary(payload))
         body = json.dumps(payload).encode("utf-8")
         rpc_request = request.Request(
             config.SEPOLIA_READ_RPC_URL,
@@ -317,6 +318,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
                 response_body = response.read()
         except HTTPError as error:
             response_body = error.read() or json.dumps({"error": str(error)}).encode("utf-8")
+            logger.warning("sepolia rpc http error status=%s body=%s", error.code, _one_line_bytes(response_body))
             self.send_response(error.code)
             self.send_header("Content-Type", error.headers.get("Content-Type", "application/json"))
             self.send_header("Content-Length", str(len(response_body)))
@@ -325,6 +327,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             self.wfile.write(response_body)
             return
         except URLError as error:
+            logger.warning("sepolia rpc unavailable error=%s", error.reason)
             self._send_json({"error": f"Sepolia RPC unavailable: {error.reason}"}, status=502)
             return
 
@@ -366,6 +369,25 @@ def _query_value(query: str, key: str) -> str | None:
         return None
     value = values[0].strip()
     return value or None
+
+
+def _rpc_summary(payload: dict[str, Any] | list[Any]) -> str:
+    if isinstance(payload, list):
+        methods = [str(item.get("method", "?")) for item in payload if isinstance(item, dict)]
+        return f"batch count={len(payload)} methods={methods[:8]}"
+    method = payload.get("method") if isinstance(payload, dict) else None
+    params = payload.get("params") if isinstance(payload, dict) else None
+    if method == "eth_call" and isinstance(params, list) and params and isinstance(params[0], dict):
+        call = params[0]
+        data = str(call.get("data") or "")
+        return f"method=eth_call to={call.get('to')} selector={data[:10]}"
+    return f"method={method or '?'}"
+
+
+def _one_line_bytes(value: bytes, limit: int = 300) -> str:
+    text = value.decode("utf-8", errors="replace")
+    text = " ".join(text.split())
+    return text[:limit]
 
 
 def _json_default(value: Any) -> Any:

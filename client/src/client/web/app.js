@@ -338,14 +338,9 @@ async function loginWithMetaMask() {
     state.walletMessage = `wallet: ${shortKey(walletAddress)} · resolving ENS`;
     renderWalletProfile();
 
-    const ensProvider = new ethers.JsonRpcProvider(SEPOLIA_READ_RPC_URL, {
-      chainId: Number(challenge.chain_id),
-      name: "sepolia",
-      ensAddress: ENS_REGISTRY_ADDRESS,
-    });
     let ens = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
     try {
-      ens = await withTimeout(resolveWalletEns(ensProvider, walletAddress), 15000, "ENS lookup");
+      ens = await withTimeout(resolveWalletEns(walletAddress), 15000, "ENS lookup");
     } catch (error) {
       ens.reason = error.message || "ENS lookup failed";
     }
@@ -447,22 +442,15 @@ async function ensureSepolia() {
   }
 }
 
-async function resolveWalletEns(provider, walletAddress) {
+async function resolveWalletEns(walletAddress) {
   const result = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
-  let name = "";
-  try {
-    name = await provider.lookupAddress(walletAddress);
-  } catch (error) {
-    name = "";
-  }
-  if (!name) name = await reverseName(provider, walletAddress);
-  name = normalizeEnsName(name);
+  const name = normalizeEnsName(await reverseName(walletAddress));
   if (!name) {
     result.reason = "no Sepolia primary ENS reverse record found for this wallet";
     return result;
   }
 
-  const resolverInfo = await forwardResolverDetails(provider, name);
+  const resolverInfo = await forwardResolverDetails(name);
   if (!sameAddress(resolverInfo.forwardAddress, walletAddress)) {
     result.reason = `${name} does not resolve back to the connected wallet`;
     return result;
@@ -474,69 +462,71 @@ async function resolveWalletEns(provider, walletAddress) {
   return result;
 }
 
-async function reverseName(provider, walletAddress) {
+async function reverseName(walletAddress) {
   const reverseNode = reverseNodeForAddress(walletAddress);
-  try {
-    const registry = new ethers.Contract(
-      ENS_REGISTRY_ADDRESS,
-      ["function resolver(bytes32 node) view returns (address)"],
-      provider,
-    );
-    const resolverAddress = await registry.resolver(reverseNode);
-    if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) return "";
-    const resolver = new ethers.Contract(
-      resolverAddress,
-      ["function name(bytes32 node) view returns (string)"],
-      provider,
-    );
-    return await resolver.name(reverseNode);
-  } catch (error) {
-    return "";
-  }
+  const resolverAddress = await registryResolver(reverseNode);
+  if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) return "";
+  const resolverInterface = new ethers.Interface(["function name(bytes32 node) view returns (string)"]);
+  const data = resolverInterface.encodeFunctionData("name", [reverseNode]);
+  const raw = await ethCall(resolverAddress, data, "reverse name()");
+  return resolverInterface.decodeFunctionResult("name", raw)[0] || "";
 }
 
 function reverseNodeForAddress(walletAddress) {
   return ethers.namehash(`${String(walletAddress).toLowerCase().replace(/^0x/, "")}.addr.reverse`);
 }
 
-async function forwardResolverDetails(provider, name) {
+async function forwardResolverDetails(name) {
   const result = { resolverAddress: "", forwardAddress: "", agentPublicKey: "" };
   const node = ethers.namehash(name);
-  let resolverAddress = "";
-  try {
-    const registry = new ethers.Contract(
-      ENS_REGISTRY_ADDRESS,
-      ["function resolver(bytes32 node) view returns (address)"],
-      provider,
-    );
-    resolverAddress = await registry.resolver(node);
-  } catch (error) {
-    return result;
-  }
+  const resolverAddress = await registryResolver(node);
   if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) {
     return result;
   }
   result.resolverAddress = resolverAddress;
 
-  const resolver = new ethers.Contract(
-    resolverAddress,
-    [
-      "function addr(bytes32 node) view returns (address)",
-      "function text(bytes32 node,string key) view returns (string)",
-    ],
-    provider,
-  );
+  const resolverInterface = new ethers.Interface([
+    "function addr(bytes32 node) view returns (address)",
+    "function text(bytes32 node,string key) view returns (string)",
+  ]);
   try {
-    result.forwardAddress = await resolver.addr(node);
+    const addrData = resolverInterface.encodeFunctionData("addr", [node]);
+    const rawAddr = await ethCall(resolverAddress, addrData, "forward addr()");
+    result.forwardAddress = resolverInterface.decodeFunctionResult("addr", rawAddr)[0] || "";
   } catch (error) {
     result.forwardAddress = "";
   }
   try {
-    result.agentPublicKey = await resolver.text(node, AGENT_PUBLIC_KEY_TEXT_RECORD) || "";
+    const textData = resolverInterface.encodeFunctionData("text", [node, AGENT_PUBLIC_KEY_TEXT_RECORD]);
+    const rawText = await ethCall(resolverAddress, textData, "agent key text()");
+    result.agentPublicKey = resolverInterface.decodeFunctionResult("text", rawText)[0] || "";
   } catch (error) {
     result.agentPublicKey = "";
   }
   return result;
+}
+
+async function registryResolver(node) {
+  const registryInterface = new ethers.Interface(["function resolver(bytes32 node) view returns (address)"]);
+  const data = registryInterface.encodeFunctionData("resolver", [node]);
+  const raw = await ethCall(ENS_REGISTRY_ADDRESS, data, "registry resolver()");
+  return registryInterface.decodeFunctionResult("resolver", raw)[0] || "";
+}
+
+async function ethCall(to, data, label) {
+  console.debug(`ENS ${label}`, { to });
+  const payload = await postJson(SEPOLIA_READ_RPC_URL, {
+    jsonrpc: "2.0",
+    id: Date.now(),
+    method: "eth_call",
+    params: [{ to, data }, "latest"],
+  });
+  if (payload.error) {
+    const message = payload.error.message || JSON.stringify(payload.error);
+    throw new Error(`${label} failed: ${message}`);
+  }
+  if (!payload.result) throw new Error(`${label} returned no result`);
+  return payload.result;
 }
 
 function normalizeEnsName(value) {
