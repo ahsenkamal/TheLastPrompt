@@ -7,9 +7,7 @@ authors = [
     { name = "Ahsen Kamal", email = "itsahsenkamal@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = [
-    "web3>=7.14.0",
-]
+dependencies = []
 
 [project.scripts]
 client = "client.main:main"

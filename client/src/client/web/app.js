@@ -307,20 +307,25 @@ async function loginWithMetaMask() {
 
   let walletAddress = "";
   try {
+    console.info("[wallet] login started");
     els.loginButton.disabled = true;
     state.walletMessage = "wallet: connecting";
     renderWalletProfile();
     await ensureSepolia();
+    console.info("[wallet] Sepolia selected");
     const challenge = await fetchJson("/api/profile/challenge");
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
     walletAddress = await signer.getAddress();
+    console.info("[wallet] signer address", walletAddress);
     const signature = await window.ethereum.request({
       method: "personal_sign",
       params: [challenge.message, walletAddress],
     });
+    console.info("[wallet] signature received");
     const recovered = ethers.verifyMessage(challenge.message, signature);
     if (!sameAddress(recovered, walletAddress)) throw new Error("signature mismatch");
+    console.info("[wallet] signature verified");
 
     const walletProfile = {
       agent_public_key: challenge.agent_public_key,
@@ -332,12 +337,13 @@ async function loginWithMetaMask() {
     };
     const walletSaved = await postJson("/api/profile", walletProfile);
     state.profile = walletSaved.profile || walletProfile;
+    console.info("[wallet] wallet profile saved", state.profile);
     state.walletMessage = `wallet: ${shortKey(walletAddress)} · resolving ENS`;
     renderWalletProfile();
 
     let ens = { ens_name: "", resolver_address: "", profile_text_value: "", reason: "" };
     try {
-      ens = await withTimeout(fetchEnsProfile(walletAddress), 15000, "ENS lookup");
+      ens = await withTimeout(resolveWalletEns(provider, walletAddress), 15000, "ENS lookup");
     } catch (error) {
       ens.reason = error.message || "ENS lookup failed";
     }
@@ -360,10 +366,12 @@ async function loginWithMetaMask() {
     };
     const saved = await postJson("/api/profile", profile);
     state.profile = saved.profile || profile;
+    console.info("[ens] ENS profile saved", state.profile);
     state.walletMessage = "";
     hideEnsRegistration();
     renderWalletProfile();
   } catch (error) {
+    console.error("[wallet] login failed", error);
     state.walletMessage = `wallet: ${error.message || "login failed"}`;
     renderWalletProfile();
   } finally {
@@ -418,14 +426,17 @@ async function storeAgentKeyOnEns() {
 
 async function ensureSepolia() {
   const chainId = await window.ethereum.request({ method: "eth_chainId" });
+  console.info("[wallet] current chain", chainId);
   if (String(chainId).toLowerCase() === SEPOLIA_CHAIN_ID) return;
   try {
+    console.info("[wallet] switching to Sepolia");
     await window.ethereum.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: SEPOLIA_CHAIN_ID }],
     });
   } catch (error) {
     if (error.code !== 4902) throw error;
+    console.info("[wallet] adding Sepolia chain");
     await window.ethereum.request({
       method: "wallet_addEthereumChain",
       params: [{
@@ -439,9 +450,55 @@ async function ensureSepolia() {
   }
 }
 
-async function fetchEnsProfile(walletAddress) {
-  const query = new URLSearchParams({ wallet_address: walletAddress });
-  return fetchJson(`/api/ens/profile?${query.toString()}`);
+async function resolveWalletEns(provider, walletAddress) {
+  console.info("[ens] lookupAddress start", walletAddress);
+  let ensName = "";
+  try {
+    ensName = normalizeEnsName(await provider.lookupAddress(walletAddress));
+    console.info("[ens] lookupAddress result", ensName || null);
+  } catch (error) {
+    console.error("[ens] lookupAddress failed", error);
+    throw error;
+  }
+  if (!ensName) {
+    console.info("[ens] no primary ENS found");
+    return { ens_name: "", reason: "no Sepolia primary ENS found for this wallet" };
+  }
+
+  console.info("[ens] resolveName start", ensName);
+  const forwardAddress = await provider.resolveName(ensName);
+  console.info("[ens] resolveName result", { ensName, forwardAddress });
+  if (!sameAddress(forwardAddress, walletAddress)) {
+    return { ens_name: "", reason: `${ensName} does not resolve back to the connected wallet` };
+  }
+
+  let resolver = null;
+  let resolverAddress = "";
+  let agentPublicKey = "";
+  try {
+    console.info("[ens] getResolver start", ensName);
+    resolver = await provider.getResolver(ensName);
+    resolverAddress = getResolverAddress(resolver);
+    console.info("[ens] getResolver result", resolverAddress || null);
+    console.info("[ens] getText start", AGENT_PUBLIC_KEY_TEXT_RECORD);
+    agentPublicKey = await resolver?.getText(AGENT_PUBLIC_KEY_TEXT_RECORD) || "";
+    console.info("[ens] getText result", agentPublicKey || null);
+  } catch (error) {
+    console.warn("[ens] resolver/text lookup failed", error);
+    resolverAddress = getResolverAddress(resolver);
+    agentPublicKey = "";
+  }
+
+  return {
+    ens_name: ensName,
+    resolver_address: resolverAddress,
+    profile_text_value: agentPublicKey,
+  };
+}
+
+function normalizeEnsName(value) {
+  const text = String(value || "").trim().replace(/\.$/, "").toLowerCase();
+  return text.includes(".") ? text : "";
 }
 
 function renderWalletProfile() {
