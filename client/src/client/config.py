@@ -41,7 +41,7 @@ def _get_think(name: str, default: bool | str) -> bool | str:
     return normalized in {"1", "true", "yes", "on"}
 
 
-SERVER_PUBLIC_KEY = "08f33349d093cde382b99ac4eba3e60888e91042a7ba38a8cd79b7ec03438986"
+SERVER_PUBLIC_KEY = "6fb6b86088f6ad51504bf1aa91fbfbe54efd10d283889cc5337984f2a3c03000"
 SERVER_PEER_ID = os.getenv("SERVER_PEER_ID", "")
 AXL_PEER_ID_MATCH_PREFIX = _get_int("AXL_PEER_ID_MATCH_PREFIX", 16)
 
