@@ -14,12 +14,9 @@ const state = {
 };
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
-const SEPOLIA_READ_RPC_URL = new URL("/api/sepolia-rpc", window.location.href).toString();
 const SEPOLIA_WALLET_RPC_URL = "https://ethereum-sepolia.publicnode.com";
 const AGENT_PUBLIC_KEY_TEXT_RECORD = "thelastprompt.agent_public_key";
 const SEPOLIA_ENS_APP_URL = "https://sepolia.app.ens.domains/";
-const ENS_REGISTRY_ADDRESS = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -338,13 +335,13 @@ async function loginWithMetaMask() {
     state.walletMessage = `wallet: ${shortKey(walletAddress)} · resolving ENS`;
     renderWalletProfile();
 
-    let ens = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
+    let ens = { ens_name: "", resolver_address: "", profile_text_value: "", reason: "" };
     try {
-      ens = await withTimeout(resolveWalletEns(walletAddress), 15000, "ENS lookup");
+      ens = await withTimeout(fetchEnsProfile(walletAddress), 15000, "ENS lookup");
     } catch (error) {
       ens.reason = error.message || "ENS lookup failed";
     }
-    if (!ens.name) {
+    if (!ens.ens_name) {
       state.walletMessage = `wallet: ${shortKey(walletAddress)} · ${ens.reason || "no Sepolia primary ENS found"}`;
       showEnsRegistration(ens.reason || "no Sepolia primary ENS found for this wallet");
       return;
@@ -352,13 +349,13 @@ async function loginWithMetaMask() {
     const profile = {
       agent_public_key: challenge.agent_public_key,
       wallet_address: walletAddress,
-      ens_name: ens.name,
+      ens_name: ens.ens_name,
       chain_id: challenge.chain_id,
       signature,
       login_message: challenge.message,
-      resolver_address: ens.resolverAddress,
+      resolver_address: ens.resolver_address,
       profile_text_key: AGENT_PUBLIC_KEY_TEXT_RECORD,
-      profile_text_value: ens.agentPublicKey || "",
+      profile_text_value: ens.profile_text_value || "",
       connected_at: new Date().toISOString(),
     };
     const saved = await postJson("/api/profile", profile);
@@ -442,96 +439,9 @@ async function ensureSepolia() {
   }
 }
 
-async function resolveWalletEns(walletAddress) {
-  const result = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
-  const name = normalizeEnsName(await reverseName(walletAddress));
-  if (!name) {
-    result.reason = "no Sepolia primary ENS reverse record found for this wallet";
-    return result;
-  }
-
-  const resolverInfo = await forwardResolverDetails(name);
-  if (!sameAddress(resolverInfo.forwardAddress, walletAddress)) {
-    result.reason = `${name} does not resolve back to the connected wallet`;
-    return result;
-  }
-
-  result.name = name;
-  result.resolverAddress = resolverInfo.resolverAddress;
-  result.agentPublicKey = resolverInfo.agentPublicKey;
-  return result;
-}
-
-async function reverseName(walletAddress) {
-  const reverseNode = reverseNodeForAddress(walletAddress);
-  const resolverAddress = await registryResolver(reverseNode);
-  if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) return "";
-  const resolverInterface = new ethers.Interface(["function name(bytes32 node) view returns (string)"]);
-  const data = resolverInterface.encodeFunctionData("name", [reverseNode]);
-  const raw = await ethCall(resolverAddress, data, "reverse name()");
-  return resolverInterface.decodeFunctionResult("name", raw)[0] || "";
-}
-
-function reverseNodeForAddress(walletAddress) {
-  return ethers.namehash(`${String(walletAddress).toLowerCase().replace(/^0x/, "")}.addr.reverse`);
-}
-
-async function forwardResolverDetails(name) {
-  const result = { resolverAddress: "", forwardAddress: "", agentPublicKey: "" };
-  const node = ethers.namehash(name);
-  const resolverAddress = await registryResolver(node);
-  if (!resolverAddress || sameAddress(resolverAddress, ZERO_ADDRESS)) {
-    return result;
-  }
-  result.resolverAddress = resolverAddress;
-
-  const resolverInterface = new ethers.Interface([
-    "function addr(bytes32 node) view returns (address)",
-    "function text(bytes32 node,string key) view returns (string)",
-  ]);
-  try {
-    const addrData = resolverInterface.encodeFunctionData("addr", [node]);
-    const rawAddr = await ethCall(resolverAddress, addrData, "forward addr()");
-    result.forwardAddress = resolverInterface.decodeFunctionResult("addr", rawAddr)[0] || "";
-  } catch (error) {
-    result.forwardAddress = "";
-  }
-  try {
-    const textData = resolverInterface.encodeFunctionData("text", [node, AGENT_PUBLIC_KEY_TEXT_RECORD]);
-    const rawText = await ethCall(resolverAddress, textData, "agent key text()");
-    result.agentPublicKey = resolverInterface.decodeFunctionResult("text", rawText)[0] || "";
-  } catch (error) {
-    result.agentPublicKey = "";
-  }
-  return result;
-}
-
-async function registryResolver(node) {
-  const registryInterface = new ethers.Interface(["function resolver(bytes32 node) view returns (address)"]);
-  const data = registryInterface.encodeFunctionData("resolver", [node]);
-  const raw = await ethCall(ENS_REGISTRY_ADDRESS, data, "registry resolver()");
-  return registryInterface.decodeFunctionResult("resolver", raw)[0] || "";
-}
-
-async function ethCall(to, data, label) {
-  console.debug(`ENS ${label}`, { to });
-  const payload = await postJson(SEPOLIA_READ_RPC_URL, {
-    jsonrpc: "2.0",
-    id: Date.now(),
-    method: "eth_call",
-    params: [{ to, data }, "latest"],
-  });
-  if (payload.error) {
-    const message = payload.error.message || JSON.stringify(payload.error);
-    throw new Error(`${label} failed: ${message}`);
-  }
-  if (!payload.result) throw new Error(`${label} returned no result`);
-  return payload.result;
-}
-
-function normalizeEnsName(value) {
-  const text = String(value || "").trim().replace(/\.$/, "").toLowerCase();
-  return text.includes(".") ? text : "";
+async function fetchEnsProfile(walletAddress) {
+  const query = new URLSearchParams({ wallet_address: walletAddress });
+  return fetchJson(`/api/ens/profile?${query.toString()}`);
 }
 
 function renderWalletProfile() {

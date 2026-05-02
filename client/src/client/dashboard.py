@@ -9,8 +9,6 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib import request
-from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
 from common.identity import SEPOLIA_CHAIN_ID, normalize_agent_profile, agent_display_name
@@ -21,6 +19,7 @@ from . import config
 
 
 logger = logging.getLogger(__name__)
+ENS_REGISTRY_ADDRESS = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e"
 
 
 class ClientRuntime:
@@ -226,6 +225,10 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/profile/challenge":
             self._send_json(self.runtime.profile_challenge())
             return
+        if parsed.path == "/api/ens/profile":
+            wallet_address = _query_value(parsed.query, "wallet_address")
+            self._send_json(_resolve_ens_profile(wallet_address))
+            return
         if parsed.path == "/api/history/simulations":
             self._send_json({"simulations": self.runtime.store.list_simulations(200)})
             return
@@ -265,13 +268,6 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             profile = self.runtime.update_profile(payload)
             self._send_json({"profile": profile})
             return
-        if parsed.path == "/api/sepolia-rpc":
-            payload = self._read_json(max_bytes=1_048_576)
-            if payload is None:
-                self._send_json({"error": "invalid JSON"}, status=400)
-                return
-            self._proxy_sepolia_rpc(payload)
-            return
 
         self._send_json({"error": "not found"}, status=404)
 
@@ -287,7 +283,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self, *, max_bytes: int = 32768) -> dict[str, Any] | list[Any] | None:
+    def _read_json(self, *, max_bytes: int = 32768) -> dict[str, Any] | None:
         try:
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
@@ -298,45 +294,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return None
-        return payload if isinstance(payload, (dict, list)) else None
-
-    def _proxy_sepolia_rpc(self, payload: dict[str, Any] | list[Any]) -> None:
-        logger.debug("sepolia rpc request %s", _rpc_summary(payload))
-        body = json.dumps(payload).encode("utf-8")
-        rpc_request = request.Request(
-            config.SEPOLIA_READ_RPC_URL,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "TheLastPrompt/0.1",
-            },
-            method="POST",
-        )
-        try:
-            with request.urlopen(rpc_request, timeout=20) as response:
-                response_body = response.read()
-        except HTTPError as error:
-            response_body = error.read() or json.dumps({"error": str(error)}).encode("utf-8")
-            logger.warning("sepolia rpc http error status=%s body=%s", error.code, _one_line_bytes(response_body))
-            self.send_response(error.code)
-            self.send_header("Content-Type", error.headers.get("Content-Type", "application/json"))
-            self.send_header("Content-Length", str(len(response_body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(response_body)
-            return
-        except URLError as error:
-            logger.warning("sepolia rpc unavailable error=%s", error.reason)
-            self._send_json({"error": f"Sepolia RPC unavailable: {error.reason}"}, status=502)
-            return
-
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response_body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(response_body)
+        return payload if isinstance(payload, dict) else None
 
 
 def _agent_id(sim_state: dict[str, Any]) -> int | str | None:
@@ -371,23 +329,75 @@ def _query_value(query: str, key: str) -> str | None:
     return value or None
 
 
-def _rpc_summary(payload: dict[str, Any] | list[Any]) -> str:
-    if isinstance(payload, list):
-        methods = [str(item.get("method", "?")) for item in payload if isinstance(item, dict)]
-        return f"batch count={len(payload)} methods={methods[:8]}"
-    method = payload.get("method") if isinstance(payload, dict) else None
-    params = payload.get("params") if isinstance(payload, dict) else None
-    if method == "eth_call" and isinstance(params, list) and params and isinstance(params[0], dict):
-        call = params[0]
-        data = str(call.get("data") or "")
-        return f"method=eth_call to={call.get('to')} selector={data[:10]}"
-    return f"method={method or '?'}"
+def _resolve_ens_profile(wallet_address: str | None) -> dict[str, Any]:
+    logger.info("ens profile lookup wallet=%s", wallet_address)
+    if not wallet_address:
+        return {"ens_name": "", "reason": "missing wallet address"}
+
+    try:
+        from ens import ENS
+        from web3 import Web3
+    except ImportError as error:
+        logger.error("ens library unavailable error=%s", error)
+        return {"ens_name": "", "reason": "ENS library is not installed"}
+
+    try:
+        checksum_wallet = Web3.to_checksum_address(wallet_address)
+    except ValueError:
+        return {"ens_name": "", "reason": "invalid wallet address"}
+
+    try:
+        w3 = Web3(Web3.HTTPProvider(config.SEPOLIA_READ_RPC_URL, request_kwargs={"timeout": 20}))
+        chain_id = w3.eth.chain_id
+        logger.debug("ens web3 connected chain_id=%s rpc=%s", chain_id, config.SEPOLIA_READ_RPC_URL)
+        if chain_id != SEPOLIA_CHAIN_ID:
+            return {"ens_name": "", "reason": f"Sepolia RPC returned chain_id={chain_id}"}
+
+        ns = ENS.from_web3(w3, addr=Web3.to_checksum_address(ENS_REGISTRY_ADDRESS))
+        ens_name = ns.name(checksum_wallet)
+        if not ens_name:
+            logger.info("ens profile lookup no reverse wallet=%s", checksum_wallet)
+            return {"ens_name": "", "reason": "no Sepolia primary ENS reverse record found for this wallet"}
+        ens_name = ens_name.rstrip(".").lower()
+
+        forward_address = ns.address(ens_name)
+        if not _same_address(forward_address, checksum_wallet):
+            logger.info(
+                "ens profile forward mismatch wallet=%s ens_name=%s forward=%s",
+                checksum_wallet,
+                ens_name,
+                forward_address,
+            )
+            return {"ens_name": "", "reason": f"{ens_name} does not resolve back to the connected wallet"}
+
+        resolver = ns.resolver(ens_name)
+        resolver_address = getattr(resolver, "address", "") or ""
+        try:
+            agent_public_key = ns.get_text(ens_name, "thelastprompt.agent_public_key") or ""
+        except Exception as error:
+            logger.debug("ens text record lookup failed ens_name=%s error=%s", ens_name, error)
+            agent_public_key = ""
+
+        logger.info(
+            "ens profile resolved wallet=%s ens_name=%s resolver=%s",
+            checksum_wallet,
+            ens_name,
+            resolver_address,
+        )
+        return {
+            "ens_name": ens_name,
+            "wallet_address": checksum_wallet,
+            "resolver_address": resolver_address,
+            "profile_text_key": "thelastprompt.agent_public_key",
+            "profile_text_value": agent_public_key,
+        }
+    except Exception as error:
+        logger.exception("ens profile lookup failed wallet=%s", wallet_address)
+        return {"ens_name": "", "reason": f"ENS lookup failed: {error}"}
 
 
-def _one_line_bytes(value: bytes, limit: int = 300) -> str:
-    text = value.decode("utf-8", errors="replace")
-    text = " ".join(text.split())
-    return text[:limit]
+def _same_address(left: Any, right: Any) -> bool:
+    return bool(left and right and str(left).lower() == str(right).lower())
 
 
 def _json_default(value: Any) -> Any:
