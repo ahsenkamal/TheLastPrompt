@@ -25,8 +25,8 @@ def _get_float(name: str, default: float) -> float:
 
 
 # SIM
-AGENTS_IN_SIM = os.getenv("AGENTS_IN_SIM", 2)
-SIM_MAX_TICKS = os.getenv("SIM_MAX_TICKS", 10)
+AGENTS_IN_SIM = _get_int("AGENTS_IN_SIM", 2)
+SIM_MAX_TICKS = _get_int("SIM_MAX_TICKS", 10)
 TICK_TIMEOUT_SECONDS = _get_float("TICK_TIMEOUT_SECONDS", 180.0)
 
 # MAP
