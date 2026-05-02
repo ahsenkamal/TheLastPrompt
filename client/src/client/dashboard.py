@@ -61,6 +61,11 @@ class ClientRuntime:
             self.profile_updates.append(dict(self.profile))
             self.profile_nonce = uuid4().hex
             self.profile_condition.notify_all()
+            logger.info(
+                "client profile updated wallet=%s ens_name=%s",
+                normalized.get("wallet_address"),
+                normalized.get("ens_name"),
+            )
             return dict(self.profile)
 
     def get_profile(self) -> dict[str, Any]:

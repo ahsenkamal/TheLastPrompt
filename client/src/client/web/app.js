@@ -10,6 +10,7 @@ const state = {
   replayIndex: 0,
   playing: false,
   timer: null,
+  walletMessage: "",
 };
 
 const SEPOLIA_CHAIN_ID = "0xaa36a7";
@@ -307,36 +308,49 @@ async function loginWithMetaMask() {
     return;
   }
 
+  let walletAddress = "";
   try {
     els.loginButton.disabled = true;
-    els.walletStatus.textContent = "wallet: connecting";
+    state.walletMessage = "wallet: connecting";
+    renderWalletProfile();
     await ensureSepolia();
     const challenge = await fetchJson("/api/profile/challenge");
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
-    const walletAddress = await signer.getAddress();
+    walletAddress = await signer.getAddress();
     const signature = await window.ethereum.request({
       method: "personal_sign",
       params: [challenge.message, walletAddress],
     });
     const recovered = ethers.verifyMessage(challenge.message, signature);
     if (!sameAddress(recovered, walletAddress)) throw new Error("signature mismatch");
+
+    const walletProfile = {
+      agent_public_key: challenge.agent_public_key,
+      wallet_address: walletAddress,
+      chain_id: challenge.chain_id,
+      signature,
+      login_message: challenge.message,
+      connected_at: new Date().toISOString(),
+    };
+    const walletSaved = await postJson("/api/profile", walletProfile);
+    state.profile = walletSaved.profile || walletProfile;
+    state.walletMessage = `wallet: ${shortKey(walletAddress)} · resolving ENS`;
+    renderWalletProfile();
+
     const ensProvider = new ethers.JsonRpcProvider(SEPOLIA_READ_RPC_URL, {
       chainId: Number(challenge.chain_id),
       name: "sepolia",
       ensAddress: ENS_REGISTRY_ADDRESS,
     });
-    const ens = await resolveWalletEns(ensProvider, walletAddress);
+    let ens = { name: "", resolverAddress: "", agentPublicKey: "", reason: "" };
+    try {
+      ens = await withTimeout(resolveWalletEns(ensProvider, walletAddress), 15000, "ENS lookup");
+    } catch (error) {
+      ens.reason = error.message || "ENS lookup failed";
+    }
     if (!ens.name) {
-      const saved = await postJson("/api/profile", {
-        agent_public_key: challenge.agent_public_key,
-        wallet_address: walletAddress,
-        chain_id: challenge.chain_id,
-        signature,
-        login_message: challenge.message,
-        connected_at: new Date().toISOString(),
-      });
-      state.profile = saved.profile || state.profile;
+      state.walletMessage = `wallet: ${shortKey(walletAddress)} · ${ens.reason || "no Sepolia primary ENS found"}`;
       showEnsRegistration(ens.reason || "no Sepolia primary ENS found for this wallet");
       return;
     }
@@ -354,10 +368,12 @@ async function loginWithMetaMask() {
     };
     const saved = await postJson("/api/profile", profile);
     state.profile = saved.profile || profile;
+    state.walletMessage = "";
     hideEnsRegistration();
     renderWalletProfile();
   } catch (error) {
-    els.walletStatus.textContent = `wallet: ${error.message || "login failed"}`;
+    state.walletMessage = `wallet: ${error.message || "login failed"}`;
+    renderWalletProfile();
   } finally {
     els.loginButton.disabled = false;
   }
@@ -534,7 +550,9 @@ function renderWalletProfile() {
   const wallet = profile.wallet_address ? shortKey(profile.wallet_address) : "disconnected";
   const textRecord = profile.profile_text_value === state.live?.public_key ? "stored" : "not stored";
   els.publicKey.textContent = `agent: ${name}`;
-  if (profile.wallet_address && !profile.ens_name) {
+  if (state.walletMessage && !profile.ens_name) {
+    els.walletStatus.textContent = state.walletMessage;
+  } else if (profile.wallet_address && !profile.ens_name) {
     els.walletStatus.textContent = `wallet: ${wallet} · ENS required`;
   } else {
     els.walletStatus.textContent = profile.wallet_address
@@ -556,6 +574,15 @@ function showEnsRegistration(message) {
 
 function hideEnsRegistration() {
   els.ensRegisterLink.hidden = true;
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+    }),
+  ]);
 }
 
 function togglePlay() {
