@@ -15,6 +15,10 @@
         </div>
         <div class="status">
           <span id="publicKey">agent: ...</span>
+          <span id="walletStatus">wallet: disconnected</span>
+          <input id="ensNameInput" class="ens-input" type="text" placeholder="agent.eth" />
+          <button id="loginButton" type="button">Login with MetaMask</button>
+          <button id="storeProfileButton" type="button" hidden>Store Agent Key</button>
           <span id="connection">connecting</span>
           <button id="refreshButton" type="button">Refresh</button>
         </div>
@@ -82,6 +86,7 @@
         </aside>
       </main>
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6/dist/ethers.umd.min.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

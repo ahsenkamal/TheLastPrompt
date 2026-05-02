@@ -107,6 +107,15 @@ h2 {
   padding: 8px 10px;
 }
 
+.ens-input {
+  width: 150px;
+  border: 1px solid var(--line);
+  background: rgba(0,0,0,.18);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 9px 10px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(250px, 320px) minmax(430px, 1fr) minmax(300px, 380px);
@@ -291,14 +300,19 @@ section {
 
 .agent-dot {
   min-width: 22px;
+  max-width: 72px;
   height: 22px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
+  border-radius: 999px;
   background: var(--gold);
   color: #16120a;
   font-weight: 800;
   font-size: 11px;
+  overflow: hidden;
+  padding: 0 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tile-type {
