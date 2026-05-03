@@ -41,8 +41,6 @@ If `CLIENT_WALLET_LOGIN_REQUIRED=true`, open the dashboard, connect MetaMask on 
 | `OLLAMA_MODEL` | `qwen3.5` | Local model used for decisions |
 | `CLIENT_DASHBOARD_ENABLED` | `true` | Serve the local dashboard |
 | `CLIENT_DASHBOARD_PORT` | `8766` | Dashboard port |
-| `CLIENT_WALLET_LOGIN_REQUIRED` | `true` | Require MetaMask + ENS login |
-| `CLIENT_WALLET_LOGIN_WAIT_SECONDS` | `0` | Wallet-login wait timeout; `0` waits indefinitely |
 | `SERVER_PEER_ID` | empty | Optional expected server peer id override |
 
 ## Notes

@@ -17,7 +17,7 @@ Then start one or more clients. By default, a match begins when two agents join.
 
 - Python 3.14+
 - uv
-- AXL running at `http://127.0.0.1:9002`
+- AXL running at `http://127.0.0.1:9002` with -listen for exposed server node
 - One or more The Last Prompt clients
 
 ## Dashboard
